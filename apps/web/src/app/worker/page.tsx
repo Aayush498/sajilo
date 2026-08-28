@@ -9,11 +9,13 @@ import {
   type Booking,
   type Earnings,
   type Service,
+  type ServiceRequest,
   type WorkerProfile,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { SERVICE_EMOJI, duration, npr, when } from "@/lib/format";
 import { LoginDialog } from "@/components/LoginDialog";
+import { TradePicker } from "@/components/TradePicker";
 import { usePolling } from "@/hooks/usePolling";
 import { CardSkeleton, Empty, ErrorNote, Spinner, StatusBadge } from "@/components/ui";
 
@@ -53,6 +55,7 @@ export default function WorkerPage() {
   const [jobs, setJobs] = useState<Booking[] | null>(null);
   const [open, setOpen] = useState<Booking[]>([]);
   const [earnings, setEarnings] = useState<Earnings | null>(null);
+  const [requests, setRequests] = useState<ServiceRequest[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [login, setLogin] = useState(false);
@@ -61,16 +64,18 @@ export default function WorkerPage() {
 
   const load = useCallback(async () => {
     if (!isWorker) return;
-    const [p, j, o, e] = await Promise.all([
+    const [p, j, o, e, r] = await Promise.all([
       api.get<WorkerProfile>("/worker/profile"),
       api.get<Booking[]>("/worker/jobs"),
       api.get<Booking[]>("/worker/available-jobs"),
       api.get<Earnings>("/worker/earnings"),
+      api.get<ServiceRequest[]>("/worker/service-requests"),
     ]);
     setProfile(p);
     setJobs(j);
     setOpen(o);
     setEarnings(e);
+    setRequests(r);
   }, [isWorker]);
 
   useEffect(() => {
@@ -127,7 +132,7 @@ export default function WorkerPage() {
     });
 
   const toggleTrade = (serviceId: string) => {
-    if (!profile) return;
+    if (!profile || profile.services_locked) return;
     const current = profile.services.map((s) => s.service_id);
     const next = current.includes(serviceId)
       ? current.filter((id) => id !== serviceId)
@@ -201,36 +206,21 @@ export default function WorkerPage() {
 
       {error && <ErrorNote message={error} />}
 
-      {/* --- trades -------------------------------------------------------- */}
       {profile && (
-        <section className="card p-5">
-          <h2 className="font-bold">What do you do?</h2>
-          <p className="muted mt-0.5 text-sm">
-            You only ever see jobs for the trades you pick here.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {services.map((s) => {
-              const on = myTrades.has(s.id);
-              return (
-                <button
-                  key={s.id}
-                  disabled={busy !== null}
-                  onClick={() => toggleTrade(s.id)}
-                  className={`rounded-xl border px-3 py-2 text-sm font-medium transition-all disabled:opacity-50 ${
-                    on
-                      ? "border-brand-500 bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200"
-                      : "hover:border-brand-400"
-                  }`}
-                  style={on ? undefined : { borderColor: "var(--border)" }}
-                >
-                  <span className="mr-1.5">{SERVICE_EMOJI[s.slug] ?? "🛠️"}</span>
-                  {s.name}
-                  {on && <span className="ml-1.5 text-brand-600 dark:text-brand-300">✓</span>}
-                </button>
-              );
-            })}
-          </div>
-        </section>
+        <TradePicker
+          profile={profile}
+          services={services}
+          requests={requests}
+          busy={busy}
+          onToggle={toggleTrade}
+          onRequest={async (serviceId, note) => {
+            await api.post("/worker/service-requests", { service_id: serviceId, note: note || null });
+            await load();
+          }}
+          onWithdraw={(id) =>
+            run(`withdraw:${id}`, () => api.post(`/worker/service-requests/${id}/withdraw`))
+          }
+        />
       )}
 
       {earnings && (

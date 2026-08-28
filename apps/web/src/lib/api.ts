@@ -329,6 +329,7 @@ export interface AdminStats {
   commission_revenue: string;
   customers: number;
   workers_pending_verification: number;
+  pending_service_requests: number;
 }
 
 export interface WorkerProfile {
@@ -344,6 +345,22 @@ export interface WorkerProfile {
   rating_count: number;
   jobs_completed: number;
   services: { service_id: string; skill_verified: boolean }[];
+  /** True once verification freezes the trade list. Decided server-side. */
+  services_locked: boolean;
+}
+
+export interface ServiceRequest {
+  id: string;
+  service_id: string;
+  service_name: string | null;
+  status: "pending" | "approved" | "rejected" | "withdrawn";
+  note: string | null;
+  decision_note: string | null;
+  decided_at: string | null;
+  created_at: string;
+  worker_user_id: string | null;
+  worker_name: string | null;
+  worker_phone: string | null;
 }
 
 export interface Earnings {

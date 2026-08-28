@@ -1,14 +1,26 @@
 """Worker profile and the services they are cleared to perform."""
 
 import uuid
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
+import sqlalchemy as sa
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import WorkerVerificationStatus, pg_enum
+from app.models.enums import ServiceRequestStatus, WorkerVerificationStatus, pg_enum
 
 
 class WorkerProfile(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -84,4 +96,57 @@ class WorkerService(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("worker_profile_id", "service_id", name="uq_worker_services_pair"),
         Index("ix_worker_services_service_id", "service_id"),
+    )
+
+
+class WorkerServiceRequest(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """A verified worker asking support to clear them for another trade.
+
+    Trades are self-selected while onboarding, then frozen at verification.
+    After that the list is what an admin actually checked, so widening it has
+    to go back through the same person — otherwise a worker verified as a
+    cleaner could tick "Electrician" and start taking electrical jobs in a
+    stranger's home.
+    """
+
+    __tablename__ = "worker_service_requests"
+
+    worker_profile_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("worker_profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    service_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("services.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[ServiceRequestStatus] = mapped_column(
+        pg_enum(ServiceRequestStatus, "service_request_status"),
+        nullable=False,
+        default=ServiceRequestStatus.PENDING,
+    )
+
+    # The worker's case for it — years of experience, a certificate number.
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Support's reason, which the worker is shown when they are turned down.
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    decided_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    worker: Mapped[WorkerProfile] = relationship(lazy="joined")
+    service: Mapped["Service"] = relationship(lazy="joined")  # noqa: F821
+
+    __table_args__ = (
+        # One live request per trade. Postgres treats every NULL as distinct,
+        # so a plain unique constraint would allow endless duplicates; the
+        # partial index pins it to *pending* rows only, which still lets a
+        # worker re-apply after being rejected.
+        Index(
+            "uq_worker_service_requests_pending",
+            "worker_profile_id",
+            "service_id",
+            unique=True,
+            postgresql_where=sa.text("status = 'pending'"),
+        ),
+        Index("ix_worker_service_requests_status", "status"),
     )

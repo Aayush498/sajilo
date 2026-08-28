@@ -1,20 +1,26 @@
 """Admin dispatch and operations."""
 
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentAdmin, DbSession
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError
 from app.models.booking import Booking
 from app.models.catalog import Service
-from app.models.enums import BookingStatus, UserRole, WorkerVerificationStatus
+from app.models.enums import (
+    BookingStatus,
+    ServiceRequestStatus,
+    UserRole,
+    WorkerVerificationStatus,
+)
 from app.models.user import User
-from app.models.worker import WorkerProfile, WorkerService
+from app.models.worker import WorkerProfile, WorkerService, WorkerServiceRequest
 from app.schemas.booking import AssignRequest, BookingRead, CancelRequest
-from app.schemas.worker import WorkerSummary
+from app.schemas.worker import ServiceRequestDecision, ServiceRequestRead, WorkerSummary
 from app.services import booking as booking_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -173,6 +179,91 @@ async def verify_worker(
     return rows[0]
 
 
+@router.get(
+    "/service-requests",
+    response_model=list[ServiceRequestRead],
+    summary="Workers asking to be cleared for another trade",
+)
+async def list_service_requests(
+    admin: CurrentAdmin,
+    db: DbSession,
+    request_status: Annotated[ServiceRequestStatus | None, Query()] = ServiceRequestStatus.PENDING,
+) -> list[ServiceRequestRead]:
+    stmt = select(WorkerServiceRequest).order_by(WorkerServiceRequest.created_at)
+    if request_status:
+        stmt = stmt.where(WorkerServiceRequest.status == request_status)
+    requests = list((await db.scalars(stmt)).unique().all())
+    if not requests:
+        return []
+
+    # One query for the people, rather than one per request.
+    user_ids = [r.worker.user_id for r in requests if r.worker]
+    users = {u.id: u for u in (await db.scalars(select(User).where(User.id.in_(user_ids)))).all()}
+
+    rows = []
+    for r in requests:
+        data = ServiceRequestRead.model_validate(r)
+        data.service_name = r.service.name if r.service else None
+        user = users.get(r.worker.user_id) if r.worker else None
+        if user:
+            data.worker_user_id = user.id
+            data.worker_name = user.full_name
+            data.worker_phone = user.phone
+        rows.append(data)
+    return rows
+
+
+@router.post(
+    "/service-requests/{request_id}/decide",
+    response_model=ServiceRequestRead,
+    summary="Approve or reject a trade request",
+)
+async def decide_service_request(
+    request_id: uuid.UUID, body: ServiceRequestDecision, admin: CurrentAdmin, db: DbSession
+) -> ServiceRequestRead:
+    """Approving clears the worker for that trade straight away.
+
+    The clearance is written in the same transaction as the decision, so the
+    worker's job pool widens the moment support says yes — there is no second
+    step for anyone to forget.
+    """
+    req = await db.get(WorkerServiceRequest, request_id)
+    if req is None:
+        raise NotFoundError("Request not found.", code="REQUEST_NOT_FOUND")
+    if req.status != ServiceRequestStatus.PENDING:
+        raise ConflictError("That request has already been decided.", code="REQUEST_DECIDED")
+
+    req.status = ServiceRequestStatus.APPROVED if body.approve else ServiceRequestStatus.REJECTED
+    req.decision_note = body.note
+    req.decided_by_id = admin.id
+    req.decided_at = datetime.now(UTC)
+
+    if body.approve:
+        # Guard the unique pair: a worker could have been cleared by another
+        # route between the request and this decision.
+        existing = await db.scalar(
+            select(WorkerService.id).where(
+                WorkerService.worker_profile_id == req.worker_profile_id,
+                WorkerService.service_id == req.service_id,
+            )
+        )
+        if existing is None:
+            db.add(
+                WorkerService(
+                    worker_profile_id=req.worker_profile_id,
+                    service_id=req.service_id,
+                    skill_verified=True,
+                )
+            )
+
+    await db.commit()
+    await db.refresh(req)
+
+    data = ServiceRequestRead.model_validate(req)
+    data.service_name = req.service.name if req.service else None
+    return data
+
+
 @router.get("/stats", summary="Dashboard headline numbers")
 async def stats(admin: CurrentAdmin, db: DbSession) -> dict[str, object]:
     by_status = dict(
@@ -200,6 +291,12 @@ async def stats(admin: CurrentAdmin, db: DbSession) -> dict[str, object]:
         )
     )
 
+    pending_service_requests = await db.scalar(
+        select(func.count(WorkerServiceRequest.id)).where(
+            WorkerServiceRequest.status == ServiceRequestStatus.PENDING
+        )
+    )
+
     return {
         "bookings_by_status": {s.value: c for s, c in by_status.items()},
         "total_bookings": sum(by_status.values()),
@@ -207,5 +304,6 @@ async def stats(admin: CurrentAdmin, db: DbSession) -> dict[str, object]:
         "commission_revenue": str(revenue),
         "customers": customers,
         "workers_pending_verification": pending_verification,
+        "pending_service_requests": pending_service_requests,
         "currency": "NPR",
     }

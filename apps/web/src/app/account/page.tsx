@@ -9,10 +9,12 @@ import {
   type Address,
   type City,
   type Service,
+  type ServiceRequest,
   type WorkerProfile,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { SERVICE_EMOJI } from "@/lib/format";
+import { TradePicker } from "@/components/TradePicker";
 import { Empty, ErrorNote, Field, Spinner } from "@/components/ui";
 
 export default function AccountPage() {
@@ -21,6 +23,7 @@ export default function AccountPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
   const [addresses, setAddresses] = useState<Address[] | null>(null);
+  const [requests, setRequests] = useState<ServiceRequest[]>([]);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +33,10 @@ export default function AccountPage() {
 
   const load = useCallback(async () => {
     if (!user) return;
-    if (isWorker) setProfile(await api.get<WorkerProfile>("/worker/profile"));
+    if (isWorker) {
+      setProfile(await api.get<WorkerProfile>("/worker/profile"));
+      setRequests(await api.get<ServiceRequest[]>("/worker/service-requests"));
+    }
     if (isCustomer) setAddresses(await api.get<Address[]>("/addresses"));
   }, [user, isWorker, isCustomer]);
 
@@ -84,15 +90,37 @@ export default function AccountPage() {
       />
 
       {isWorker && profile && (
-        <WorkerCard
+        <TradePicker
           profile={profile}
           services={services}
+          requests={requests}
+          busy={busy}
+          onToggle={(id) => {
+            const current = profile.services.map((x) => x.service_id);
+            const next = current.includes(id)
+              ? current.filter((x) => x !== id)
+              : [...current, id];
+            run("trades", () => api.put<WorkerProfile>("/worker/services", { service_ids: next }));
+          }}
+          onRequest={async (serviceId, note) => {
+            await api.post("/worker/service-requests", {
+              service_id: serviceId,
+              note: note || null,
+            });
+            await load();
+          }}
+          onWithdraw={(id) =>
+            run(`withdraw:${id}`, () => api.post(`/worker/service-requests/${id}/withdraw`))
+          }
+        />
+      )}
+
+      {isWorker && profile && (
+        <WorkerCard
+          profile={profile}
           busy={busy}
           onSaveProfile={(patch) =>
             run("worker", () => api.patch<WorkerProfile>("/worker/profile", patch), "Profile saved.")
-          }
-          onSaveTrades={(ids) =>
-            run("trades", () => api.put<WorkerProfile>("/worker/services", { service_ids: ids }))
           }
         />
       )}
@@ -217,16 +245,16 @@ function DetailsCard({
 
 function WorkerCard({
   profile,
-  services,
   busy,
   onSaveProfile,
-  onSaveTrades,
 }: {
   profile: WorkerProfile;
-  services: Service[];
   busy: string | null;
-  onSaveProfile: (patch: { bio?: string; experience_years?: number; is_available?: boolean }) => void;
-  onSaveTrades: (ids: string[]) => void;
+  onSaveProfile: (patch: {
+    bio?: string;
+    experience_years?: number;
+    is_available?: boolean;
+  }) => void;
 }) {
   const [bio, setBio] = useState(profile.bio ?? "");
   const [years, setYears] = useState(String(profile.experience_years));
@@ -236,7 +264,6 @@ function WorkerCard({
     setYears(String(profile.experience_years));
   }, [profile.bio, profile.experience_years]);
 
-  const trades = new Set(profile.services.map((s) => s.service_id));
   const verified = profile.verification_status === "verified";
   const yearsNum = Number(years);
   const yearsValid = Number.isInteger(yearsNum) && yearsNum >= 0 && yearsNum <= 60;
@@ -289,40 +316,6 @@ function WorkerCard({
         >
           {busy === "worker" ? "Saving…" : "Save work profile"}
         </button>
-
-        <div className="border-t pt-4" style={{ borderColor: "var(--border)" }}>
-          <p className="label">Trades you work in</p>
-          <p className="muted mb-3 text-xs">
-            You only ever see jobs for these. Changes save immediately.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {services.map((s) => {
-              const on = trades.has(s.id);
-              return (
-                <button
-                  key={s.id}
-                  disabled={busy !== null}
-                  onClick={() => {
-                    const current = [...trades];
-                    onSaveTrades(
-                      on ? current.filter((id) => id !== s.id) : [...current, s.id],
-                    );
-                  }}
-                  className={`rounded-xl border px-3 py-2 text-sm font-medium transition-all disabled:opacity-50 ${
-                    on
-                      ? "border-brand-500 bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200"
-                      : "hover:border-brand-400"
-                  }`}
-                  style={on ? undefined : { borderColor: "var(--border)" }}
-                >
-                  <span className="mr-1.5">{SERVICE_EMOJI[s.slug] ?? "🛠️"}</span>
-                  {s.name}
-                  {on && <span className="ml-1.5">✓</span>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
 
         <div className="border-t pt-4" style={{ borderColor: "var(--border)" }}>
           <div className="flex flex-wrap items-center justify-between gap-3">

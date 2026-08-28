@@ -17,7 +17,7 @@ from app.models.enums import (
     WorkerVerificationStatus,
 )
 from app.models.user import User
-from app.models.worker import WorkerProfile, WorkerService
+from app.models.worker import WorkerProfile, WorkerService, WorkerServiceRequest
 
 __all__ = [
     "Base",
@@ -39,5 +39,6 @@ __all__ = [
     "UserStatus",
     "WorkerProfile",
     "WorkerService",
+    "WorkerServiceRequest",
     "WorkerVerificationStatus",
 ]

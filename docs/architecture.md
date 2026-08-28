@@ -101,6 +101,26 @@ one table; there is no second place that needs to agree.
 Every transition also appends to `booking_status_history`, which is append-only.
 Every dispute starts by reading it.
 
+### Verification freezes what it approved
+
+A worker's trade list is self-selected while onboarding and frozen once support
+verifies them — no additions, no removals. Verification is an assertion about a
+specific person doing specific trades; leaving the list editable afterwards
+would let a verified cleaner silently become a verified electrician.
+
+Changes go back through support (`worker_service_requests`). The approval writes
+the `worker_services` row in the same transaction as the decision, so there is
+no window where a request reads "approved" while the worker still cannot see
+those jobs.
+
+The uniqueness index on that table is partial — `WHERE status = 'pending'` — so
+one live request per trade, while a rejected worker can still re-apply. A plain
+unique constraint would bar them forever.
+
+Whether the list is frozen is computed server-side and returned as
+`services_locked`, so the UI reads the rule rather than re-deriving it and
+drifting from what the API actually enforces.
+
 ### Contested jobs are locked, not hoped about
 
 Two workers pressing "Accept" on the same job at the same instant is the normal

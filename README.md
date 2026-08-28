@@ -10,7 +10,7 @@ Fixed prices. KYC-checked people. Work that comes with a warranty.
 <br>
 
 ![Status](https://img.shields.io/badge/status-MVP%20complete-14806f?style=for-the-badge)
-![Tests](https://img.shields.io/badge/tests-52%20passing-1fa189?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-60%20passing-1fa189?style=for-the-badge)
 ![Python](https://img.shields.io/badge/python-3.12-14806f?style=for-the-badge&logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/next.js-15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
 ![Postgres](https://img.shields.io/badge/postgres-16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
@@ -146,6 +146,9 @@ This is the part that matters. A marketplace is only as good as its guarantees.
 <tr><td><b>🕵️ Enumeration leaks nothing</b></td>
 <td>Ask for a booking that isn't yours and you get <code>404</code>, not <code>403</code>. Confirming a record exists is itself a leak.</td></tr>
 
+<tr><td><b>🔐 Verification cannot be widened silently</b></td>
+<td>A worker picks their trades while onboarding; verification freezes the list. Adding one goes back through support, and approval clears them in the same transaction — so their job pool widens the instant support says yes. Without this, a verified cleaner could tick "Electrician" and start taking electrical work in a stranger's home while the record still read approved.</td></tr>
+
 <tr><td><b>⏳ Sessions survive a long booking</b></td>
 <td>Access tokens expire in 15 minutes. The client refreshes them silently and retries the request, so nobody is signed out mid-task. Crucially, concurrent expiries share a single in-flight refresh — the API rotates refresh tokens and treats reuse as theft by revoking the whole session, so four parallel refreshes would sign the user out rather than keep them in.</td></tr>
 
@@ -175,14 +178,14 @@ This is the part that matters. A marketplace is only as good as its guarantees.
                         │   Python 3.12           │
                         │                         │
                         │   Every rule lives      │
-                        │   here. 43 endpoints.   │
+                        │   here. 48 endpoints.   │
                         └───────┬────────┬────────┘
                                 │        │
                   ┌─────────────▼──┐  ┌──▼──────────────┐
                   │  POSTGRES 16   │  │    REDIS 7      │
                   │  :5432         │  │    :6379        │
                   │                │  │                 │
-                  │  14 tables     │  │  OTP codes      │
+                  │  15 tables     │  │  OTP codes      │
                   │  row locking   │  │  rate limits    │
                   │  native enums  │  │  auto-expiring  │
                   └────────────────┘  └─────────────────┘
@@ -232,7 +235,7 @@ the browser was never trusted with the decision.
 | Runtime | Docker Compose |
 | Database | PostgreSQL 16 |
 | Cache | Redis 7 |
-| Tests | pytest · vitest · 52 passing |
+| Tests | pytest · vitest · 60 passing |
 | Lint | ruff · tsc |
 
 </td></tr>
@@ -362,7 +365,7 @@ sajilo/
 ├── services/api/              FastAPI backend · modular monolith
 │   ├── app/models/            Schema + the booking state machine
 │   ├── app/services/          Domain logic: auth, OTP, pricing, dispatch
-│   ├── app/api/v1/            43 endpoints, grouped by audience
+│   ├── app/api/v1/            48 endpoints, grouped by audience
 │   └── tests/                 46 tests
 │
 ├── apps/web/                  Next.js 15
@@ -388,7 +391,7 @@ Two identical helpers ship with the repo — use whichever matches your shell.
 |---|---|
 | `up` | build, start, migrate, seed |
 | `logs` | follow everything — OTP codes appear here |
-| `test` | 46 backend + 6 frontend tests |
+| `test` | 54 backend + 6 frontend tests |
 | `lint` | ruff + tsc |
 | `rebuild` | rebuild web after adding a dependency |
 | `seed` | re-seed admin, catalog and demo data |

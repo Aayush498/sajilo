@@ -6,6 +6,7 @@ import {
   api,
   type AdminStats,
   type Booking,
+  type ServiceRequest,
   type WorkerSummary,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -13,7 +14,7 @@ import { npr, when } from "@/lib/format";
 import { usePolling } from "@/hooks/usePolling";
 import { CardSkeleton, ErrorNote, Field, Spinner, StatusBadge } from "@/components/ui";
 
-type Tab = "dispatch" | "workers";
+type Tab = "dispatch" | "workers" | "requests";
 
 export default function AdminPage() {
   const { user, ready, adminLogin } = useAuth();
@@ -21,6 +22,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [workers, setWorkers] = useState<WorkerSummary[] | null>(null);
+  const [requests, setRequests] = useState<ServiceRequest[] | null>(null);
   const [candidates, setCandidates] = useState<Record<string, WorkerSummary[]>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,14 +31,16 @@ export default function AdminPage() {
 
   const load = useCallback(async () => {
     if (!isAdmin) return;
-    const [s, b, w] = await Promise.all([
+    const [s, b, w, r] = await Promise.all([
       api.get<AdminStats>("/admin/stats"),
       api.get<Booking[]>("/admin/bookings"),
       api.get<WorkerSummary[]>("/admin/workers"),
+      api.get<ServiceRequest[]>("/admin/service-requests"),
     ]);
     setStats(s);
     setBookings(b);
     setWorkers(w);
+    setRequests(r);
   }, [isAdmin]);
 
   useEffect(() => {
@@ -96,7 +100,7 @@ export default function AdminPage() {
       {error && <ErrorNote message={error} />}
 
       <div className="flex gap-1">
-        {(["dispatch", "workers"] as Tab[]).map((t) => (
+        {(["dispatch", "workers", "requests"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -110,6 +114,11 @@ export default function AdminPage() {
             {t === "workers" && stats && stats.workers_pending_verification > 0 && (
               <span className="ml-2 rounded-full bg-amber-400 px-1.5 text-xs text-amber-950">
                 {stats.workers_pending_verification}
+              </span>
+            )}
+            {t === "requests" && stats && stats.pending_service_requests > 0 && (
+              <span className="ml-2 rounded-full bg-amber-400 px-1.5 text-xs text-amber-950">
+                {stats.pending_service_requests}
               </span>
             )}
           </button>
@@ -141,6 +150,71 @@ export default function AdminPage() {
             />
             <Group title="In progress" rows={live} busy={busy} />
             <Group title="Finished" rows={done} busy={busy} collapsed />
+          </div>
+        )
+      ) : tab === "requests" ? (
+        requests === null ? (
+          <Spinner />
+        ) : requests.length === 0 ? (
+          <div className="card p-8 text-center">
+            <p className="font-semibold">No trade requests waiting</p>
+            <p className="muted mt-1 text-sm">
+              A verified worker&rsquo;s trades are locked, so widening them lands here.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {requests.map((r) => (
+              <div key={r.id} className="card p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-bold">
+                      {r.worker_name ?? "Unnamed worker"} wants {r.service_name}
+                    </p>
+                    <p className="muted text-sm">{r.worker_phone}</p>
+                    {r.note && (
+                      <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-500/10">
+                        {r.note}
+                      </p>
+                    )}
+                  </div>
+                  <p className="muted text-xs">{when(r.created_at)}</p>
+                </div>
+                <div
+                  className="mt-4 flex flex-wrap gap-2 border-t pt-4"
+                  style={{ borderColor: "var(--border)" }}
+                >
+                  <button
+                    className="btn-primary text-xs"
+                    disabled={busy !== null}
+                    onClick={() =>
+                      run(`req:${r.id}`, () =>
+                        api.post(`/admin/service-requests/${r.id}/decide`, { approve: true }),
+                      )
+                    }
+                  >
+                    {busy === `req:${r.id}` ? "Working…" : "Approve"}
+                  </button>
+                  <button
+                    className="btn-ghost text-xs"
+                    disabled={busy !== null}
+                    onClick={() =>
+                      run(`req:${r.id}`, () =>
+                        api.post(`/admin/service-requests/${r.id}/decide`, {
+                          approve: false,
+                          note: "Send Sajilo your certificate for this trade.",
+                        }),
+                      )
+                    }
+                  >
+                    Reject
+                  </button>
+                  <span className="muted self-center text-xs">
+                    Approving clears them for {r.service_name} immediately.
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
         )
       ) : workers === null ? (

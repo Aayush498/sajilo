@@ -2,19 +2,32 @@
 
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentWorker, DbSession
-from app.core.errors import AppError, NotFoundError
+from app.core.errors import AppError, ConflictError, NotFoundError
+from app.core.logging import get_logger
 from app.models.booking import Booking
 from app.models.catalog import Service
-from app.models.enums import TERMINAL_BOOKING_STATUSES, BookingStatus
-from app.models.worker import WorkerProfile, WorkerService
+from app.models.enums import (
+    TERMINAL_BOOKING_STATUSES,
+    BookingStatus,
+    ServiceRequestStatus,
+    WorkerVerificationStatus,
+)
+from app.models.worker import WorkerProfile, WorkerService, WorkerServiceRequest
 from app.schemas.booking import BookingRead, CancelRequest, CompleteRequest
-from app.schemas.worker import WorkerProfileRead, WorkerProfileUpdate, WorkerServicesUpdate
+from app.schemas.worker import (
+    ServiceRequestCreate,
+    ServiceRequestRead,
+    WorkerProfileRead,
+    WorkerProfileUpdate,
+    WorkerServicesUpdate,
+)
 from app.services import booking as booking_service
 
+log = get_logger(__name__)
 router = APIRouter(prefix="/worker", tags=["worker"])
 
 
@@ -42,14 +55,14 @@ async def _job(db: DbSession, booking_id: uuid.UUID, worker: CurrentWorker) -> B
 
 
 @router.get("/profile", response_model=WorkerProfileRead, summary="My worker profile")
-async def read_profile(worker: CurrentWorker, db: DbSession) -> WorkerProfile:
-    return await _profile(db, worker.id)
+async def read_profile(worker: CurrentWorker, db: DbSession) -> WorkerProfileRead:
+    return _serialize_profile(await _profile(db, worker.id))
 
 
 @router.patch("/profile", response_model=WorkerProfileRead, summary="Update bio / availability")
 async def update_profile(
     body: WorkerProfileUpdate, worker: CurrentWorker, db: DbSession
-) -> WorkerProfile:
+) -> WorkerProfileRead:
     profile = await _profile(db, worker.id)
     # As in users.py: an omitted field is left alone, but an explicit null
     # clears the bio. experience_years and is_available are not nullable.
@@ -60,24 +73,49 @@ async def update_profile(
         setattr(profile, field, value)
     await db.commit()
     await db.refresh(profile)
-    return profile
+    return _serialize_profile(profile)
+
+
+def _serialize_profile(profile: WorkerProfile) -> WorkerProfileRead:
+    data = WorkerProfileRead.model_validate(profile)
+    data.services_locked = _is_locked(profile)
+    return data
+
+
+def _is_locked(profile: WorkerProfile) -> bool:
+    """Trades are frozen once support has verified the worker.
+
+    What an admin approved was this person doing *these* trades. If the list
+    stayed editable afterwards, someone verified as a cleaner could tick
+    "Electrician" and start taking electrical work in a stranger's home — the
+    verification would still say approved, but it would no longer mean
+    anything.
+    """
+    return profile.verification_status == WorkerVerificationStatus.VERIFIED
 
 
 @router.put(
     "/services",
     response_model=WorkerProfileRead,
-    summary="Choose which trades I work in",
+    summary="Choose which trades I work in (before verification only)",
 )
 async def set_services(
     body: WorkerServicesUpdate, worker: CurrentWorker, db: DbSession
-) -> WorkerProfile:
-    """Replace the worker's trade list.
+) -> WorkerProfileRead:
+    """Replace the worker's trade list, while onboarding.
 
     Picking a trade is a claim, not a credential: `skill_verified` stays false
     until an admin says otherwise, and verification is what actually unlocks
-    work.
+    work. Once verified, the list is frozen — see `_is_locked`.
     """
     profile = await _profile(db, worker.id)
+
+    if _is_locked(profile):
+        raise ConflictError(
+            "Your trades were locked when Sajilo verified you. "
+            "Request a new one and support will review it.",
+            code="SERVICES_LOCKED",
+        )
 
     wanted = set(body.service_ids)
     if wanted:
@@ -99,7 +137,105 @@ async def set_services(
         await db.delete(existing[service_id])
 
     await db.commit()
-    return await _profile(db, worker.id, fresh=True)
+    return _serialize_profile(await _profile(db, worker.id, fresh=True))
+
+
+def _request_row(req: WorkerServiceRequest) -> ServiceRequestRead:
+    data = ServiceRequestRead.model_validate(req)
+    data.service_name = req.service.name if req.service else None
+    return data
+
+
+@router.get(
+    "/service-requests",
+    response_model=list[ServiceRequestRead],
+    summary="My requests to add a trade",
+)
+async def my_service_requests(worker: CurrentWorker, db: DbSession) -> list[ServiceRequestRead]:
+    profile = await _profile(db, worker.id)
+    rows = (
+        (
+            await db.scalars(
+                select(WorkerServiceRequest)
+                .where(WorkerServiceRequest.worker_profile_id == profile.id)
+                .order_by(WorkerServiceRequest.created_at.desc())
+            )
+        )
+        .unique()
+        .all()
+    )
+    return [_request_row(r) for r in rows]
+
+
+@router.post(
+    "/service-requests",
+    response_model=ServiceRequestRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ask support to clear me for another trade",
+)
+async def request_service(
+    body: ServiceRequestCreate, worker: CurrentWorker, db: DbSession
+) -> ServiceRequestRead:
+    profile = await _profile(db, worker.id)
+
+    service = await db.get(Service, body.service_id)
+    if service is None or not service.is_active:
+        raise NotFoundError("That service is not available.", code="SERVICE_NOT_FOUND")
+
+    already = await db.scalar(
+        select(WorkerService.id).where(
+            WorkerService.worker_profile_id == profile.id,
+            WorkerService.service_id == service.id,
+        )
+    )
+    if already is not None:
+        raise ConflictError(f"You are already cleared for {service.name}.", code="ALREADY_CLEARED")
+
+    pending = await db.scalar(
+        select(WorkerServiceRequest.id).where(
+            WorkerServiceRequest.worker_profile_id == profile.id,
+            WorkerServiceRequest.service_id == service.id,
+            WorkerServiceRequest.status == ServiceRequestStatus.PENDING,
+        )
+    )
+    if pending is not None:
+        raise ConflictError(
+            f"You already have a request for {service.name} waiting for review.",
+            code="REQUEST_PENDING",
+        )
+
+    req = WorkerServiceRequest(worker_profile_id=profile.id, service_id=service.id, note=body.note)
+    db.add(req)
+    await db.commit()
+    await db.refresh(req)
+    log.info(
+        "worker.service_requested",
+        worker_id=str(worker.id),
+        service=service.name,
+    )
+    return _request_row(req)
+
+
+@router.post(
+    "/service-requests/{request_id}/withdraw",
+    response_model=ServiceRequestRead,
+    summary="Withdraw a request I no longer need",
+)
+async def withdraw_service_request(
+    request_id: uuid.UUID, worker: CurrentWorker, db: DbSession
+) -> ServiceRequestRead:
+    profile = await _profile(db, worker.id)
+    req = await db.get(WorkerServiceRequest, request_id)
+    # 404 rather than 403 — whose request this is, is not the caller's business.
+    if req is None or req.worker_profile_id != profile.id:
+        raise NotFoundError("Request not found.", code="REQUEST_NOT_FOUND")
+    if req.status != ServiceRequestStatus.PENDING:
+        raise ConflictError("That request has already been decided.", code="REQUEST_DECIDED")
+
+    req.status = ServiceRequestStatus.WITHDRAWN
+    await db.commit()
+    await db.refresh(req)
+    return _request_row(req)
 
 
 @router.get(

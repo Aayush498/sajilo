@@ -63,6 +63,16 @@ BOOKING_TRANSITIONS: dict[str, tuple[tuple[BookingStatus, ...], BookingStatus]] 
 TERMINAL_BOOKING_STATUSES = (BookingStatus.CLOSED, BookingStatus.CANCELLED)
 
 
+class ServiceRequestStatus(StrEnum):
+    """A verified worker asking to be cleared for another trade."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    # The worker changed their mind before support got to it.
+    WITHDRAWN = "withdrawn"
+
+
 class PaymentMethod(StrEnum):
     CASH = "cash"
     ESEWA = "esewa"

@@ -57,8 +57,24 @@ verified | rejected` — not a boolean, because trust is the product. Only a
 `verified` **and** `available` worker who is **cleared for that specific trade**
 can be attached to a job, by any route.
 
-**Tables:** `customer_addresses`, `worker_profiles`, `worker_services`
-**Endpoints:** `/addresses` · `/worker/{profile,services}` · `/admin/workers` · `/admin/workers/{id}/verify`
+**Tables:** `customer_addresses`, `worker_profiles`, `worker_services`, `worker_service_requests`
+**Endpoints:** `/addresses` · `/worker/{profile,services,service-requests}` · `/admin/{workers,service-requests}`
+
+### Trades are frozen at verification
+
+A worker picks their trades freely while onboarding. The moment support
+verifies them, the list locks — they cannot add one and cannot drop one.
+
+What an admin approved was this person doing *these* trades. If the list stayed
+editable, someone verified as a cleaner could tick "Electrician" and start
+taking electrical work in a stranger's home; the verification record would
+still say approved while meaning nothing.
+
+Widening it goes back through support as a request. Approval writes the
+clearance in the same transaction as the decision, so the worker's job pool
+widens the moment support says yes — no second step for anyone to forget. A
+rejection carries a reason the worker is shown, and does not bar them from
+re-applying: the uniqueness index covers *pending* rows only.
 
 ### Not built yet: document upload
 
@@ -178,6 +194,7 @@ CI/CD and production deploy.
 | Catalogue & pricing | Production-shaped |
 | Booking lifecycle & dispatch | Production-shaped |
 | Worker verification | **Workflow only — no document upload** |
+| Trade lock & requests | Production-shaped |
 | Payments | **Cash only — no gateway** |
 | Web app | Production-shaped |
 | Notifications | **None.** Status changes are discovered by polling |
