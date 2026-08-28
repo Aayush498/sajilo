@@ -25,7 +25,8 @@ Fixed prices. KYC-checked people. Work that comes with a warranty.
 **One command to run the entire platform.**
 
 ```powershell
-.\dev.ps1 up
+.\dev.ps1 up      # PowerShell
+./dev.sh up       # Git Bash · WSL · macOS · Linux
 ```
 
 </div>
@@ -238,7 +239,8 @@ the browser was never trusted with the decision.
 **Docker is the only prerequisite.**
 
 ```powershell
-.\dev.ps1 up
+.\dev.ps1 up      # PowerShell
+./dev.sh up       # Git Bash, WSL, macOS, Linux
 ```
 
 Builds four containers, applies migrations, seeds the catalogue and demo accounts, and
@@ -360,6 +362,7 @@ sajilo/
 ├── apps/web/                  Next.js 15
 │   └── src/app/               Customer · worker portal · admin board · account
 │
+├── dev.ps1 · dev.sh           Same helper, one per shell
 ├── docs/                      Architecture and module plan
 ├── PROJECT_OVERVIEW.txt       Full walkthrough, no prior knowledge assumed
 └── docker-compose.yml         postgres · redis · api · web
@@ -372,16 +375,24 @@ system from scratch, including a glossary, and assumes nothing.
 
 ## Commands
 
-```powershell
-.\dev.ps1 up        # build, start, migrate, seed
-.\dev.ps1 logs      # follow everything (OTP codes appear here)
-.\dev.ps1 test      # 46 backend tests
-.\dev.ps1 lint      # ruff + tsc
-.\dev.ps1 seed      # re-seed admin, catalog and demo data
-.\dev.ps1 psql      # database shell
-.\dev.ps1 down      # stop
-.\dev.ps1 reset     # destroy volumes and rebuild from scratch
-```
+Two identical helpers ship with the repo — use whichever matches your shell.
+`.\dev.ps1 <cmd>` in PowerShell, `./dev.sh <cmd>` in Git Bash, WSL, macOS or Linux.
+
+| Command | What it does |
+|---|---|
+| `up` | build, start, migrate, seed |
+| `logs` | follow everything — OTP codes appear here |
+| `test` | 46 backend tests |
+| `lint` | ruff + tsc |
+| `seed` | re-seed admin, catalog and demo data |
+| `migrate` | apply migrations |
+| `psql` | database shell |
+| `shell` | bash inside the api container |
+| `down` | stop |
+| `reset` | destroy volumes and rebuild from scratch |
+
+Prefer raw Docker? Every helper command is a thin wrapper — `docker compose up -d --build`,
+`docker compose logs -f`, and so on. Nothing is hidden.
 
 Tests run against real Postgres and Redis in a separate database, never your dev data.
 There is no SQLite substitute — the schema depends on native enums, partial indexes and
