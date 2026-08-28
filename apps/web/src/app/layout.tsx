@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Header } from "@/components/Header";
 import { ProfileGate } from "@/components/ProfileGate";
+import { Toaster } from "@/components/Toaster";
 import { AuthProvider } from "@/lib/auth";
 import "./globals.css";
 
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           <Header />
           <ProfileGate />
+          <Toaster />
           <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
           <footer
             className="mt-16 py-8 text-center text-xs muted"

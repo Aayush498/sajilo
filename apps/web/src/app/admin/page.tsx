@@ -10,7 +10,8 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { npr, when } from "@/lib/format";
-import { ErrorNote, Field, Spinner, StatusBadge } from "@/components/ui";
+import { usePolling } from "@/hooks/usePolling";
+import { CardSkeleton, ErrorNote, Field, Spinner, StatusBadge } from "@/components/ui";
 
 type Tab = "dispatch" | "workers";
 
@@ -42,11 +43,9 @@ export default function AdminPage() {
     load().catch(() => setBookings([]));
   }, [load]);
 
-  useEffect(() => {
-    if (!isAdmin) return;
-    const t = setInterval(() => load().catch(() => undefined), 8000);
-    return () => clearInterval(t);
-  }, [isAdmin, load]);
+  // Pauses while the tab is hidden — an unwatched dispatch board does not
+  // need refreshing, and it refetches on return.
+  usePolling(() => load().catch(() => undefined), 8000, isAdmin);
 
   async function run(key: string, fn: () => Promise<unknown>) {
     setBusy(key);
@@ -119,7 +118,7 @@ export default function AdminPage() {
 
       {tab === "dispatch" ? (
         bookings === null ? (
-          <Spinner />
+          <CardSkeleton rows={3} />
         ) : (
           <div className="space-y-6">
             <Group

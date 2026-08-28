@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { KeyRound, Loader2, Smartphone } from "lucide-react";
 import { ApiError, type Role } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { Modal } from "./Modal";
 import { ErrorNote, Field } from "./ui";
 
 /**
@@ -65,24 +67,17 @@ export function LoginDialog({
     });
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-      onClick={onClose}
+    <Modal
+      open
+      onClose={onClose}
+      title={title ?? (role === "admin" ? "Admin sign in" : `Sign in as ${role}`)}
+      description={
+        role === "admin"
+          ? "Use the seeded operations account."
+          : "We'll text you a six-digit code."
+      }
     >
-      <div
-        className="card w-full max-w-sm p-6 animate-rise"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-bold">
-          {title ?? (role === "admin" ? "Admin sign in" : `Sign in as ${role}`)}
-        </h2>
-        <p className="muted mt-1 mb-5 text-sm">
-          {role === "admin"
-            ? "Use the seeded operations account."
-            : "We'll text you a six-digit code."}
-        </p>
-
-        <div className="space-y-4">
+      <>
           {role === "admin" ? (
             <>
               <Field label="Email">
@@ -155,8 +150,7 @@ export function LoginDialog({
             </>
           )}
 
-          {role === "admin" && error && <ErrorNote message={error} />}
-        </div>
+        {role === "admin" && error && <ErrorNote message={error} />}
 
         {role !== "admin" && (
           <div className="mt-5 border-t pt-4" style={{ borderColor: "var(--border)" }}>
@@ -187,7 +181,7 @@ export function LoginDialog({
             </div>
           </div>
         )}
-      </div>
-    </div>
+      </>
+    </Modal>
   );
 }

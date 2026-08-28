@@ -48,17 +48,73 @@ export const tokens = {
   },
 };
 
-async function parse(res: Response) {
+interface ApiBody {
+  error?: { code?: string; message?: string; details?: Record<string, unknown> };
+  [key: string]: unknown;
+}
+
+async function parse(res: Response): Promise<ApiBody | null> {
   if (res.status === 204) return null;
   const text = await res.text();
   if (!text) return null;
   return JSON.parse(text);
 }
 
-async function request<T>(
+/**
+ * Called when a refresh fails and the session is genuinely over, so the app
+ * can drop its user state instead of rendering a signed-in shell with no
+ * token behind it. Set once by <AuthProvider>.
+ */
+let onSessionLost: (() => void) | null = null;
+export function setSessionLostHandler(fn: () => void) {
+  onSessionLost = fn;
+}
+
+/**
+ * Access tokens live 15 minutes. Without this, every user was silently
+ * signed out mid-task once theirs expired — the refresh token was being
+ * stored and never used.
+ *
+ * The in-flight promise matters: a page that fires four requests at once
+ * (as /worker does) would otherwise send four refreshes, and the API rotates
+ * refresh tokens, so three of them would arrive with a token that had just
+ * been consumed. Reuse detection would then revoke the whole session — the
+ * exact opposite of staying signed in. Everyone awaits the same refresh.
+ */
+let refreshing: Promise<boolean> | null = null;
+
+async function refreshSession(): Promise<boolean> {
+  const token = tokens.refresh;
+  if (!token) return false;
+
+  refreshing ??= (async () => {
+    try {
+      const res = await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: token }),
+      });
+      if (!res.ok) return false;
+      tokens.save((await res.json()) as AuthSession);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      // Cleared in a microtask so everyone awaiting this round sees the
+      // result before a later 401 can start a fresh attempt.
+      queueMicrotask(() => {
+        refreshing = null;
+      });
+    }
+  })();
+
+  return refreshing;
+}
+
+async function send(
   path: string,
-  init: RequestInit & { auth?: boolean } = {},
-): Promise<T> {
+  init: RequestInit & { auth?: boolean },
+): Promise<{ res: Response; body: ApiBody | null }> {
   const { auth = true, headers, ...rest } = init;
   const h = new Headers(headers);
   h.set("Content-Type", "application/json");
@@ -66,13 +122,47 @@ async function request<T>(
   const token = tokens.access;
   if (auth && token) h.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${BASE}${path}`, { ...rest, headers: h });
-  const body = await parse(res);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, { ...rest, headers: h });
+  } catch {
+    // fetch only rejects when the request never completed: the API is down,
+    // DNS failed, or the device is offline. There is no status to report.
+    throw new ApiError(
+      "NETWORK",
+      navigator.onLine === false
+        ? "You appear to be offline. Check your connection and try again."
+        : "Could not reach Sajilo. Please try again in a moment.",
+      0,
+    );
+  }
+  return { res, body: await parse(res) };
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit & { auth?: boolean } = {},
+): Promise<T> {
+  const auth = init.auth ?? true;
+  let { res, body } = await send(path, init);
+
+  // One retry, and only for an authenticated call that we can actually fix by
+  // getting a new access token.
+  if (res.status === 401 && auth && tokens.refresh) {
+    if (await refreshSession()) {
+      ({ res, body } = await send(path, init));
+    }
+  }
 
   if (!res.ok) {
     const err = body?.error ?? {};
-    // A dead session should not leave the UI in a half-authenticated state.
-    if (res.status === 401 && auth) tokens.clear();
+    // Still 401 after a refresh attempt: the session is genuinely gone.
+    // Leaving the tokens behind would render a signed-in UI that 401s on
+    // every action.
+    if (res.status === 401 && auth) {
+      tokens.clear();
+      onSessionLost?.();
+    }
     throw new ApiError(
       err.code ?? "UNKNOWN",
       err.message ?? `Request failed (${res.status})`,

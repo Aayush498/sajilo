@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { usePolling } from "@/hooks/usePolling";
 import { ApiError, api, type Booking } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { duration, npr, when } from "@/lib/format";
@@ -42,11 +43,8 @@ export default function OrderDetailPage() {
 
   // Poll while the job is live. Server-sent events would be tidier, but
   // polling needs no extra infrastructure and a 5s lag is invisible here.
-  useEffect(() => {
-    if (!booking || !LIVE_STATUSES.includes(booking.status)) return;
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
-  }, [booking, load]);
+  // Stops while the tab is hidden and refetches the moment it comes back.
+  usePolling(load, 5000, !!booking && LIVE_STATUSES.includes(booking.status));
 
   async function act(fn: () => Promise<Booking>) {
     setBusy(true);

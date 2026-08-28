@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { Modal } from "./Modal";
 import { ErrorNote, Field } from "./ui";
 
 /**
@@ -37,50 +38,44 @@ export function ProfileGate() {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="profile-gate-title"
+    // Not dismissable: an account with no name is useless to the person on
+    // the other side of the job, so Escape and click-outside are disabled.
+    // "Sign out instead" is the way out.
+    <Modal
+      open
+      onClose={() => undefined}
+      dismissable={false}
+      title="One last thing"
+      description={
+        user.role === "worker"
+          ? "Customers see this name when you take their job."
+          : "So your professional knows who they are meeting."
+      }
     >
-      <div className="card animate-rise w-full max-w-sm p-6">
-        <h2 id="profile-gate-title" className="text-lg font-bold">
-          One last thing
-        </h2>
-        <p className="muted mt-1 mb-5 text-sm">
-          {user.role === "worker"
-            ? "Customers see this name when you take their job."
-            : "So your professional knows who they are meeting."}
-        </p>
+      <Field label="Your full name">
+        <input
+          className="input"
+          placeholder="Anjali Maharjan"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && name.trim().length > 1 && save()}
+          autoFocus
+        />
+      </Field>
 
-        <div className="space-y-4">
-          <Field label="Your full name">
-            <input
-              className="input"
-              placeholder="Anjali Maharjan"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && name.trim().length > 1 && save()}
-              autoFocus
-            />
-          </Field>
+      {error && <ErrorNote message={error} />}
 
-          {error && <ErrorNote message={error} />}
+      <button
+        className="btn-primary w-full"
+        disabled={busy || name.trim().length < 2}
+        onClick={save}
+      >
+        {busy ? "Saving…" : "Continue"}
+      </button>
 
-          <button
-            className="btn-primary w-full"
-            disabled={busy || name.trim().length < 2}
-            onClick={save}
-          >
-            {busy ? "Saving…" : "Continue"}
-          </button>
-
-          {/* Without this the only way out of the gate is clearing site data. */}
-          <button className="muted w-full text-xs" onClick={logout}>
-            Sign out instead
-          </button>
-        </div>
-      </div>
-    </div>
+      <button className="muted w-full text-xs" onClick={logout}>
+        Sign out instead
+      </button>
+    </Modal>
   );
 }

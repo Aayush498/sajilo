@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, type Service } from "@/lib/api";
 import { npr, SERVICE_EMOJI } from "@/lib/format";
-import { Spinner } from "@/components/ui";
+import { Skeleton } from "@/components/ui";
 
 const TRUST = [
   { icon: "🪪", title: "KYC + citizenship verified", body: "Every professional is identity-checked before their first job." },
@@ -53,7 +53,11 @@ export default function Home() {
         <p className="muted mb-6 text-sm">Five services at launch. More on the way.</p>
 
         {services === null ? (
-          <Spinner />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-44" />
+            ))}
+          </div>
         ) : services.length === 0 ? (
           <div className="card p-6 text-sm">
             Could not reach the API. Is the backend running on port 8000?

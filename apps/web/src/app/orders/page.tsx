@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api, type Booking } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { npr, when } from "@/lib/format";
-import { Empty, Spinner, StatusBadge } from "@/components/ui";
+import { CardSkeleton, Empty, Spinner, StatusBadge } from "@/components/ui";
 
 export default function OrdersPage() {
   const { user, ready } = useAuth();
@@ -19,7 +19,13 @@ export default function OrdersPage() {
   if (!ready) return <Spinner />;
   if (!user)
     return <Empty title="Sign in to see your orders" hint="Use the button in the header." />;
-  if (bookings === null) return <Spinner label="Loading your orders…" />;
+  if (bookings === null)
+    return (
+      <div className="space-y-5">
+        <h1 className="text-3xl font-black">My orders</h1>
+        <CardSkeleton rows={3} />
+      </div>
+    );
   if (bookings.length === 0)
     return (
       <div className="space-y-4">

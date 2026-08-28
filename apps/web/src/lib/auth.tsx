@@ -9,7 +9,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, tokens, type AuthSession, type Role, type User } from "./api";
+import {
+  api,
+  setSessionLostHandler,
+  tokens,
+  type AuthSession,
+  type Role,
+  type User,
+} from "./api";
 
 export interface ProfilePatch {
   full_name?: string;
@@ -39,6 +46,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setUser(tokens.loadUser());
     setReady(true);
+    // When a refresh finally fails, the API layer clears the tokens; React
+    // still holds the old user until it is told, and would render a
+    // signed-in shell that 401s on every action.
+    setSessionLostHandler(() => setUser(null));
   }, []);
 
   const adopt = useCallback((session: AuthSession) => {
