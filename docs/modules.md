@@ -1,7 +1,11 @@
 # Module plan
 
-Built one at a time. Each module ships with migrations, tests, and docs before
+Built one at a time. Each module ships with migrations, tests and docs before
 the next one starts.
+
+**This file records what was actually built, not what was originally planned.**
+Where the two diverged, the divergence is written down — a plan that quietly
+becomes fiction is worse than no plan.
 
 ---
 
@@ -9,74 +13,174 @@ the next one starts.
 
 Repo layout, Docker stack, config, structured logging, error envelope, rate
 limiting. Phone-OTP auth, admin password login, JWT access tokens, rotating
-refresh tokens with reuse detection, RBAC for Customer/Worker/Admin.
+refresh tokens with reuse detection, RBAC for Customer / Worker / Admin.
 
 **Tables:** `users`, `refresh_tokens`
-**Endpoints:** `/health/{live,ready}`, `/auth/{request-otp,verify-otp,admin/login,refresh,logout,logout-all}`, `/users/me`
+**Endpoints:** `/health/{live,ready}` · `/auth/{request-otp,verify-otp,admin/login,refresh,logout,logout-all}` · `/users/me`
 
 ---
 
-## Module 2 — Geography & service catalog
+## ✅ Module 2 — Geography & service catalog
 
-Cities and service zones (Kathmandu first), service categories, the five MVP
-services, and fixed transparent pricing. Public browse endpoints plus admin
-CRUD.
+Cities, service categories, the five MVP services, and 21 fixed-price packages.
+Public browse endpoints, no authentication — asking someone to register before
+they can see a price loses most of them.
 
-Pricing is a versioned table, not a column: when a rate changes, past bookings
-must still show what the customer actually agreed to pay.
+**Tables:** `cities`, `service_categories`, `services`, `service_packages`
+**Endpoints:** `/catalog/{cities,categories,services,services/{slug}}`
 
-**Tables:** `cities`, `zones`, `service_categories`, `services`, `service_packages`, `price_versions`
+### Changed from the plan: no `price_versions` table
 
----
+The plan was a versioned price table so that past bookings kept their agreed
+price. The implementation gets the same guarantee more cheaply: **the booking
+snapshots its own price** — service name, package name, unit price, total,
+commission rate and payout are all copied onto the `bookings` row at creation.
 
-## Module 3 — Customer profiles & worker onboarding
+That is strictly better here. A version table answers "what did this package
+cost on 3 August", which nothing in the product asks. A snapshot answers "what
+did *this customer* agree to and what was *this worker* promised", which is the
+question every invoice and every dispute actually asks — and it survives a
+package being deleted outright.
 
-Customer addresses. Worker profiles, document upload (citizenship, KYC, skill
-certificates), the admin verification workflow, and availability management.
-Uploads go to local disk behind a storage interface.
-
-This is where the trust differentiator gets built, so verification state is an
-explicit state machine — `pending → under_review → verified | rejected` — not a
-boolean.
-
-**Tables:** `customer_addresses`, `worker_profiles`, `worker_documents`, `worker_services`, `worker_availability`
-
----
-
-## Module 4 — Booking lifecycle & dispatch
-
-Quote, create, assign, and the full status machine through completion. Manual
-admin dispatch first; automatic matching once there are enough workers for the
-choice to matter.
-
-**Tables:** `bookings`, `booking_items`, `booking_status_history`, `assignments`
+`zones` was also dropped. One city, and addresses carry an area string; zones
+buy nothing until dispatch is automatic and needs geographic batching.
 
 ---
 
-## Module 5 — Payments & invoices
+## ✅ Module 3 — Customer addresses & worker onboarding
 
-Cash first, because that is how most of Kathmandu will actually pay at launch.
-Then eSewa, Khalti and Fonepay. Commission (15–20%) calculated per booking,
-worker earnings ledger, digital invoices.
+Customer addresses with soft delete. Worker profiles, self-selected trades, the
+admin verification workflow, and availability.
 
-**Tables:** `payments`, `invoices`, `commission_records`, `worker_earnings`, `payouts`
+Verification is an explicit state machine — `pending → under_review →
+verified | rejected` — not a boolean, because trust is the product. Only a
+`verified` **and** `available` worker who is **cleared for that specific trade**
+can be attached to a job, by any route.
+
+**Tables:** `customer_addresses`, `worker_profiles`, `worker_services`
+**Endpoints:** `/addresses` · `/worker/{profile,services}` · `/admin/workers` · `/admin/workers/{id}/verify`
+
+### Not built yet: document upload
+
+`worker_documents` and the citizenship / KYC / skill-certificate uploads are
+**not implemented**. Admins verify on evidence gathered outside the system
+today. The state machine and the `police_verified` and `citizenship_number`
+columns are in place, so uploads slot in without a schema rethink — but the
+README and product copy should not claim document upload until they exist.
+
+`worker_availability` was dropped in favour of a single `is_available` flag.
+Per-day scheduling windows are a real need at scale and pure overhead at four
+workers.
 
 ---
 
-## Module 6 — Next.js web & admin dashboard
+## ✅ Module 4 — Booking lifecycle & dispatch
 
-Marketing site, customer booking flow, and the admin dashboard: worker
-verification queue, dispatch board, refunds, analytics.
+Quote, create, and the full status machine through to a rated close.
+
+Every legal move lives in one table, `BOOKING_TRANSITIONS` in
+`app/models/enums.py`, and every move is checked against it. An illegal jump is
+therefore impossible rather than merely unlikely.
+
+**Two dispatch paths**, both gated on the same eligibility rules:
+
+- **Self-serve** — a verified worker sees a pool of open jobs matching their
+  trades and claims one. The row is locked with `SELECT … FOR UPDATE` before
+  its status is read, so simultaneous claims produce one winner and one clean
+  `409`, never a double booking.
+- **Admin dispatch** — staff assign a specific worker, who accepts or declines.
+  A decline returns the job to the pool and detaches the worker.
+
+**Tables:** `bookings`, `booking_status_history`, `reviews`
+**Endpoints:** `/bookings/*` · `/worker/{jobs,available-jobs,earnings}` · `/admin/bookings/*`
+
+### Changed from the plan
+
+- **No `assignments` table.** A booking has at most one worker at a time, so
+  `bookings.worker_id` plus the audit trail carries everything an assignments
+  table would. Re-assignment history is already in `booking_status_history`.
+- **No `booking_items` table.** Every booking is one package with a quantity.
+  A line-items table is the right shape for multi-service baskets, which the
+  MVP does not have and may never need.
+- **Self-serve claiming was not in the original plan** and became the primary
+  path. Manual dispatch alone means nothing happens until a human is watching
+  the board.
 
 ---
 
-## Module 7 — Flutter apps
+## 🟡 Module 5 — Payments & invoices
 
-Customer and worker apps against the same API.
+**Cash only.** A `payments` row is created with every booking and marked paid
+when the worker confirms they collected. Commission and payout are computed and
+frozen at booking time.
+
+**Tables:** `payments`
+**Not built:** `invoices`, `commission_records`, `worker_earnings`, `payouts`
+
+Online payment — eSewa, Khalti, Fonepay — is not implemented. `PaymentMethod`
+already enumerates them and `payments` carries `transaction_id` and `paid_at`,
+so a gateway is a new branch rather than a migration.
+
+Worker earnings are computed on read by summing completed bookings
+(`/worker/earnings`). That is correct and fast enough at this size; it becomes a
+ledger when payouts are real money moving on a schedule rather than cash in
+hand.
 
 ---
 
-## Later
+## ✅ Module 6 — Next.js web & admin dashboard
 
-Notifications (Firebase), live tracking (Maps), reviews and ratings, warranties,
-coupons, referrals, loyalty, Nepali localisation, CI/CD and production deploy.
+Marketing home, customer booking flow, live order tracking, worker portal,
+admin dispatch board, and a shared account page.
+
+- **Customer** — browse, book, track live, rate.
+- **Worker** — trade selection, verification state, claimable job pool, the job
+  through to completion, earnings.
+- **Admin** — live dispatch board, skill-matched candidate lists, one-click
+  verification, commission revenue.
+- **Everyone** — `/account` for name, email, language and sessions.
+
+Reliability work that turned out to matter more than any feature:
+
+- The client refreshes access tokens silently and retries. Without it every
+  user was signed out 15 minutes in, mid-booking. Concurrent expiries share one
+  in-flight refresh, because the API rotates refresh tokens and treats reuse as
+  theft.
+- Error, not-found and loading boundaries, so Next.js never shows a customer
+  its stack trace.
+- Polling pauses on hidden tabs.
+- Radix dialogs, so modals have focus trapping, Escape and scroll locking.
+
+**Not built:** refunds, analytics beyond headline numbers.
+
+---
+
+## ⬜ Module 7 — Flutter apps
+
+Customer and worker apps against the same API. Not started.
+
+---
+
+## ⬜ Later
+
+Notifications (Firebase), live tracking (Maps), warranties as a tracked claim
+rather than a promise, coupons, referrals, loyalty, Nepali localisation
+(the `locale` column and `name_ne` fields exist; nothing reads them yet),
+CI/CD and production deploy.
+
+---
+
+## Honest status
+
+| Area | State |
+|---|---|
+| Auth, RBAC, sessions | Production-shaped |
+| Catalogue & pricing | Production-shaped |
+| Booking lifecycle & dispatch | Production-shaped |
+| Worker verification | **Workflow only — no document upload** |
+| Payments | **Cash only — no gateway** |
+| Web app | Production-shaped |
+| Notifications | **None.** Status changes are discovered by polling |
+| Mobile apps | Not started |
+| CI/CD | **None.** Tests are run by hand |
+| Nepali localisation | Data seeded, nothing renders it |

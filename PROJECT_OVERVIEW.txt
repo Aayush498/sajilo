@@ -93,6 +93,13 @@ runs them.
   Tailwind CSS v4   How the styling is written. Instead of a separate style
                     file, you write styles directly on the element, e.g.
                     class="rounded-xl bg-brand-600 text-white".
+  Radix UI          Accessible dialog behaviour: focus trapping, Escape to
+                    close, background scroll locking, screen-reader
+                    announcements. Hand-written modals get all of this
+                    wrong, quietly.
+  lucide-react      The icon set.
+  sonner            Small pop-up messages ("job is yours", "saved").
+  vitest            Runs the frontend tests.
 
   Runs on:  http://localhost:3000
 
@@ -163,8 +170,10 @@ runs them.
                     connect.
   dev.ps1           A small Windows PowerShell helper so you type
                     ".\dev.ps1 up" instead of six separate commands.
-  pytest            Runs the automated tests. 38 of them.
+  pytest            Runs the backend tests. 46 of them.
   ruff              Checks Python style and formatting.
+  dev.ps1 / dev.sh  The same helper twice, one per shell. Use dev.ps1 in
+                    PowerShell and dev.sh in Git Bash, WSL, macOS or Linux.
 
 
 ===============================================================================
@@ -264,13 +273,16 @@ sajilo/
 │   │   │
 │   │   └── cli.py                       Commands: seed-admin, seed-catalog...
 │   │
-│   └── tests/                           38 automated tests
+│   └── tests/                           46 automated tests
 │
 └── apps/web/                            THE WEBSITE
     ├── Dockerfile
     ├── package.json                     List of JavaScript libraries needed
     └── src/
         ├── app/                         One folder = one page
+        │   ├── error.tsx                shown if a page crashes
+        │   ├── not-found.tsx            shown for a bad URL
+        │   ├── loading.tsx              shown while a page loads
         │   ├── page.tsx                 /          home page
         │   ├── book/page.tsx            /book      the booking form
         │   ├── orders/page.tsx          /orders    my bookings
@@ -282,12 +294,21 @@ sajilo/
         │
         ├── components/                  Reusable bits of screen
         │   ├── Header.tsx               Top navigation bar (role-aware)
+        │   ├── Modal.tsx                One accessible pop-up shell
         │   ├── LoginDialog.tsx          The sign-in pop-up
         │   ├── ProfileGate.tsx          Asks a new user for their name
-        │   └── ui.tsx                   Badges, spinners, timelines
+        │   ├── Toaster.tsx              Small transient messages
+        │   └── ui.tsx                   Badges, skeletons, timelines
+        │
+        ├── hooks/
+        │   └── usePolling.ts            Refreshes data, pauses on hidden tabs
         │
         └── lib/
-            ├── api.ts                   Talks to the backend; stores tokens
+            ├── api.ts                   Talks to the backend; stores tokens,
+            │                            refreshes them silently when they
+            │                            expire, and turns network failures
+            │                            into readable messages
+            ├── api.test.ts              Tests for that session handling
             ├── auth.tsx                 Remembers who is signed in
             └── format.ts                "NPR 2,200", "2h 30m", status labels
 
@@ -421,6 +442,12 @@ paid", and at each step name the exact file doing the work.
           ACCESS TOKEN   Short-lived, 15 minutes. Sent with every request as
                          proof of who you are. It is a JWT: a small signed
                          string the API can verify without a database lookup.
+
+                         When it expires the website swaps it for a fresh one
+                         behind the scenes and retries — you are never signed
+                         out mid-booking. Every waiting request shares ONE
+                         refresh, because the API cancels a whole session if
+                         it sees the same refresh token used twice.
 
           REFRESH TOKEN  Long-lived, 30 days. Its only job is to get a fresh
                          access token when the old one expires. It is stored
@@ -690,7 +717,8 @@ first.
 
  REQUIREMENT: Docker Desktop installed and running. Nothing else.
 
-      .\dev.ps1 up
+      .\dev.ps1 up        (PowerShell)
+      ./dev.sh up         (Git Bash, WSL, macOS, Linux)
 
  That single command builds all four containers, creates the database
  structure, loads the services and prices, and creates the demo accounts.
@@ -703,7 +731,7 @@ first.
 
  OTHER COMMANDS
       .\dev.ps1 logs     watch everything happening, including login codes
-      .\dev.ps1 test     run the 38 automated tests
+      .\dev.ps1 test     run the 52 automated tests
       .\dev.ps1 lint     check code style and types
       .\dev.ps1 seed     re-create demo accounts and prices
       .\dev.ps1 psql     open a database shell
@@ -726,7 +754,10 @@ first.
         the payments table already has the right shape for them.
       - Real SMS. Codes are printed to the logs.
       - Push notifications and live worker location on a map.
-      - Uploading KYC documents and photos.
+      - Uploading KYC documents and photos. Admins verify on evidence
+        gathered outside the system today.
+      - Automated checks on every change (CI). Tests are run by hand.
+      - Nepali text. The data is there; nothing displays it yet.
       - The Flutter mobile apps for customers and workers.
 
 

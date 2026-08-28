@@ -3,20 +3,21 @@
 ## Shape of the system
 
 ```
-Flutter (Customer)   Flutter (Worker)   Next.js (Web + Admin)
-         └──────────────────┬──────────────────┘
-                      HTTPS / REST
-                            │
-                     ┌──────▼──────┐
-                     │   FastAPI   │   modular monolith
-                     │   /api/v1   │
-                     └──┬───┬───┬──┘
-           ┌────────────┘   │   └────────────┐
-      PostgreSQL          Redis         Object storage
-   (source of truth)  (OTP, cache,      (KYC docs, images)
-                       rate limits,      — local disk for now
-                       queues)
+  Next.js (Web · Worker portal · Admin)      Flutter apps — not built yet
+                     └──────────────┬──────────────┘
+                              HTTPS / REST
+                                    │
+                             ┌──────▼──────┐
+                             │   FastAPI   │   modular monolith
+                             │   /api/v1   │
+                             └──┬───────┬──┘
+                   ┌────────────┘       └────────────┐
+              PostgreSQL                          Redis
+          (source of truth)                (OTP codes, rate limits)
 ```
+
+Object storage is in the plan for KYC documents and images, but nothing
+uploads files today — see `docs/modules.md`.
 
 ## Decisions and why
 
@@ -70,6 +71,63 @@ it.
 That costs one indexed lookup and caps the blast radius of a revoked session at
 zero instead of the 15-minute access TTL.
 
+### Prices are snapshotted, not versioned
+
+A booking copies the service name, package name, unit price, total, commission
+rate and payout onto its own row at creation. It does not point at the live
+price list.
+
+The original plan was a `price_versions` table. A version table answers "what
+did this package cost last Tuesday", which nothing in the product asks. A
+snapshot answers "what did *this customer* agree to, and what was *this worker*
+promised" — the question every invoice and every dispute actually asks — and it
+survives the package being deleted outright.
+
+Payout is derived by **subtraction** (`total - commission`), never as its own
+percentage, so commission and payout always reconcile to the total exactly with
+no rounding drift. Rounding is `ROUND_HALF_UP`, because banker's rounding looks
+like an error to someone reading an invoice.
+
+### The booking lifecycle is one table, not scattered conditionals
+
+`BOOKING_TRANSITIONS` in `app/models/enums.py` maps each action to the statuses
+it may start from and the one it lands on. `transition()` is the only way a
+booking's status changes, and it consults that map every time.
+
+This is the difference between an illegal jump being *impossible* and being
+*unlikely because everyone remembered the rules*. Adding a stage means editing
+one table; there is no second place that needs to agree.
+
+Every transition also appends to `booking_status_history`, which is append-only.
+Every dispute starts by reading it.
+
+### Contested jobs are locked, not hoped about
+
+Two workers pressing "Accept" on the same job at the same instant is the normal
+case in a job pool, not a rare one. `claim_booking()` takes a row lock —
+`SELECT … FOR UPDATE` — *before* it reads the booking's status. The second
+request waits, then finds the job taken and gets a clean `409`.
+
+Two details that are easy to get wrong:
+
+- The locking query uses `noload("*")`. The model's default eager loads produce
+  outer joins, and Postgres refuses `FOR UPDATE` on the nullable side of one.
+- The lock is held until the route commits, so the check and the write are one
+  atomic step.
+
+### Responses are filtered server-side, per viewer
+
+`serialize()` builds a booking response *for a specific viewer*. Customers never
+receive `commission_amount` or `worker_payout` — the fields are absent from the
+payload, not hidden by the UI, so developer tools reveal nothing.
+
+Phone numbers are exchanged only while a job is live (assigned through
+completed). Before assignment there is nobody to call; after closing, support
+should handle it.
+
+Asking for a booking that is not yours returns `404`, not `403`. Confirming
+that a record exists is itself a leak.
+
 ### OTP in Redis, not Postgres
 
 Codes are short-lived and disposable. Redis gives TTL expiry for free and
@@ -103,6 +161,48 @@ translate it to Nepali — without shipping a new app build.
 account keeps its rows for accounting and dispute history, while releasing the
 phone number for re-registration. A plain unique constraint would force us to
 either scramble the stored number or block the person from ever coming back.
+
+## The web client
+
+### It decides nothing
+
+The Next.js app renders and collects clicks. Every rule — who may do what, what
+things cost, which moves are legal — lives in the API and is re-checked on every
+request. There is no path from developer tools to a discount, because the
+browser was never trusted with the decision in the first place.
+
+### Sessions refresh silently, exactly once at a time
+
+Access tokens last 15 minutes. The client refreshes on a `401` and retries the
+original request, so nobody is signed out mid-booking.
+
+The part that is load-bearing: **all concurrent callers await one in-flight
+refresh**. The worker portal fires four requests at once. Four independent
+refreshes would mean three arriving with an already-rotated token, which the API
+correctly treats as theft and answers by revoking the entire session — turning a
+refresh into a logout. The single shared promise is what prevents that, and it
+is covered by a test that fails if the deduplication regresses.
+
+When a refresh genuinely fails, the client clears its tokens *and* tells React,
+so the UI cannot render a signed-in shell that 401s on every action.
+
+### Liveness by polling
+
+Order pages, the job pool and the dispatch board poll every 5–8 seconds. Server-
+sent events or websockets would be tidier, but polling needs no extra
+infrastructure and a five-second lag is invisible for a job that takes an hour.
+
+Polling stops while the tab is hidden and refetches on return. A backgrounded
+tab was thousands of pointless requests per user, and browsers throttle those
+timers unpredictably anyway, so the data was not fresh either.
+
+### Onboarding gates live above the router
+
+The prompt asking a new user for their name is rendered in the root layout, not
+inside the sign-in dialog. Signing in changes the very state that pages branch
+on, so a prompt owned by a page can be unmounted mid-flow by the page
+underneath it — which is exactly how workers were reaching admin approval with
+no name. A gate above the router cannot be torn down that way.
 
 ## Local-first, by design
 
