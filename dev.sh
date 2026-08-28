@@ -6,6 +6,7 @@
 #   ./dev.sh logs      follow all logs (OTP codes appear here)
 #   ./dev.sh test      run the test suite
 #   ./dev.sh lint      ruff + tsc
+#   ./dev.sh rebuild   rebuild after adding a dependency
 #   ./dev.sh seed      admin + catalog + demo accounts
 #   ./dev.sh migrate   apply migrations
 #   ./dev.sh psql      open a database shell
@@ -61,11 +62,23 @@ case "${1:-up}" in
         docker compose exec -T postgres psql -U sajilo -d postgres \
             -c "CREATE DATABASE sajilo_test" >/dev/null 2>&1 || true
         docker compose exec -T "${TEST_ENV[@]}" api pytest -q
+        docker compose exec -T web npx vitest run
         ;;
     lint)
         docker compose exec -T api ruff check .
         docker compose exec -T api ruff format --check .
         docker compose exec -T web npx tsc --noEmit
+        ;;
+    rebuild)
+        # node_modules is a named volume, so it shadows whatever the image
+        # ships. After adding a dependency the container keeps serving the old
+        # tree and every import of the new package 500s. Dropping the volume
+        # is the only thing that fixes it.
+        docker compose stop web
+        docker compose rm -f web
+        docker volume rm sajilo_web_node_modules 2>/dev/null || true
+        docker compose up -d --build web
+        green "Web rebuilt with a fresh node_modules."
         ;;
     logs)  docker compose logs -f ;;
     psql)  docker compose exec postgres psql -U sajilo -d sajilo ;;

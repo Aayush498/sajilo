@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { Inbox, Loader2 } from "lucide-react";
 import type { Booking, BookingStatus } from "@/lib/api";
 import { PROGRESS_STEPS, STATUS_LABEL, STATUS_TONE, when } from "@/lib/format";
 
@@ -18,18 +19,61 @@ export function StatusBadge({ status }: { status: BookingStatus }) {
 
 export function Spinner({ label }: { label?: string }) {
   return (
-    <div className="flex items-center justify-center gap-3 py-12 muted text-sm">
-      <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+    <div className="muted flex items-center justify-center gap-2.5 py-12 text-sm">
+      <Loader2 size={16} className="animate-spin" />
       {label ?? "Loading…"}
     </div>
   );
 }
 
-export function Empty({ title, hint }: { title: string; hint?: string }) {
+/**
+ * Grey block standing in for content that is still loading. Preferred over a
+ * spinner wherever the shape of the result is known, because the layout does
+ * not jump when the real content lands.
+ */
+export function Skeleton({ className = "" }: { className?: string }) {
+  return (
+    <div
+      className={`animate-pulse rounded-xl bg-slate-200/70 dark:bg-slate-800/70 ${className}`}
+      aria-hidden="true"
+    />
+  );
+}
+
+/** Skeleton shaped like a booking row, for the orders and jobs lists. */
+export function CardSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="card space-y-3 p-5">
+          <div className="flex justify-between">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-6 w-24" />
+          </div>
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function Empty({
+  title,
+  hint,
+  icon,
+}: {
+  title: string;
+  hint?: string;
+  icon?: ReactNode;
+}) {
   return (
     <div className="card p-10 text-center">
+      <div className="muted mx-auto mb-3 grid h-11 w-11 place-items-center rounded-xl bg-slate-100 dark:bg-slate-800/60">
+        {icon ?? <Inbox size={20} />}
+      </div>
       <p className="font-semibold">{title}</p>
-      {hint && <p className="muted mt-1 text-sm">{hint}</p>}
+      {hint && <p className="muted mx-auto mt-1 max-w-sm text-sm">{hint}</p>}
     </div>
   );
 }

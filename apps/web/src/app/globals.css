@@ -118,6 +118,16 @@ body {
   animation: rise 0.35s ease-out both;
 }
 
+/* Used by the Radix dialog via arbitrary animation values. */
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes pulse-ring {
   0% {
     box-shadow: 0 0 0 0 rgb(31 161 137 / 0.5);

@@ -10,7 +10,7 @@ Fixed prices. KYC-checked people. Work that comes with a warranty.
 <br>
 
 ![Status](https://img.shields.io/badge/status-MVP%20complete-14806f?style=for-the-badge)
-![Tests](https://img.shields.io/badge/tests-46%20passing-1fa189?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-52%20passing-1fa189?style=for-the-badge)
 ![Python](https://img.shields.io/badge/python-3.12-14806f?style=for-the-badge&logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/next.js-15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
 ![Postgres](https://img.shields.io/badge/postgres-16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
@@ -146,6 +146,9 @@ This is the part that matters. A marketplace is only as good as its guarantees.
 <tr><td><b>🕵️ Enumeration leaks nothing</b></td>
 <td>Ask for a booking that isn't yours and you get <code>404</code>, not <code>403</code>. Confirming a record exists is itself a leak.</td></tr>
 
+<tr><td><b>⏳ Sessions survive a long booking</b></td>
+<td>Access tokens expire in 15 minutes. The client refreshes them silently and retries the request, so nobody is signed out mid-task. Crucially, concurrent expiries share a single in-flight refresh — the API rotates refresh tokens and treats reuse as theft by revoking the whole session, so four parallel refreshes would sign the user out rather than keep them in.</td></tr>
+
 <tr><td><b>📱 One person, one account</b></td>
 <td>Every number is normalised to E.164 and validated against libphonenumber, so <code>9841234567</code>, <code>098-4123-4567</code> and <code>+977 9841234567</code> are the same human — not three.</td></tr>
 </table>
@@ -218,6 +221,9 @@ the browser was never trusted with the decision.
 | UI | React 19 |
 | Language | TypeScript |
 | Styling | Tailwind CSS v4 |
+| Icons | lucide-react |
+| Dialogs | Radix UI |
+| Toasts | sonner |
 | Theme | Light + dark, no flash |
 
 **Infrastructure**
@@ -226,7 +232,7 @@ the browser was never trusted with the decision.
 | Runtime | Docker Compose |
 | Database | PostgreSQL 16 |
 | Cache | Redis 7 |
-| Tests | pytest · 46 passing |
+| Tests | pytest · vitest · 52 passing |
 | Lint | ruff · tsc |
 
 </td></tr>
@@ -382,8 +388,9 @@ Two identical helpers ship with the repo — use whichever matches your shell.
 |---|---|
 | `up` | build, start, migrate, seed |
 | `logs` | follow everything — OTP codes appear here |
-| `test` | 46 backend tests |
+| `test` | 46 backend + 6 frontend tests |
 | `lint` | ruff + tsc |
+| `rebuild` | rebuild web after adding a dependency |
 | `seed` | re-seed admin, catalog and demo data |
 | `migrate` | apply migrations |
 | `psql` | database shell |

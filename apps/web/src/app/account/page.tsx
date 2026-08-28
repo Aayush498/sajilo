@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { LogOut, MapPin, ShieldCheck, Trash2, User as UserIcon } from "lucide-react";
 import {
   ApiError,
   api,
@@ -22,7 +24,6 @@ export default function AccountPage() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
 
   const isWorker = user?.role === "worker";
   const isCustomer = user?.role === "customer";
@@ -49,14 +50,10 @@ export default function AccountPage() {
   async function run(key: string, fn: () => Promise<unknown>, okMessage?: string) {
     setBusy(key);
     setError(null);
-    setSaved(null);
     try {
       await fn();
       await load();
-      if (okMessage) {
-        setSaved(okMessage);
-        setTimeout(() => setSaved(null), 3000);
-      }
+      if (okMessage) toast.success(okMessage);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "That did not work.");
     } finally {
@@ -80,12 +77,6 @@ export default function AccountPage() {
       </div>
 
       {error && <ErrorNote message={error} />}
-      {saved && (
-        <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
-          {saved}
-        </div>
-      )}
-
       <DetailsCard
         user={user}
         busy={busy}
@@ -117,13 +108,14 @@ export default function AccountPage() {
       )}
 
       <section className="card p-5">
-        <h2 className="font-bold">Sessions</h2>
+        <h2 className="flex items-center gap-2 font-bold"><ShieldCheck size={16} /> Sessions</h2>
         <p className="muted mt-0.5 text-sm">
           Signing out everywhere ends every session on every device. Use it if you lose your
           phone.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <button className="btn-ghost text-sm" onClick={logout}>
+            <LogOut size={14} />
             Sign out
           </button>
           <button
@@ -168,7 +160,7 @@ function DetailsCard({
 
   return (
     <section className="card p-5">
-      <h2 className="font-bold">Your details</h2>
+      <h2 className="flex items-center gap-2 font-bold"><UserIcon size={16} /> Your details</h2>
       <div className="mt-4 space-y-4">
         <Field label="Full name">
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
@@ -371,7 +363,7 @@ function AddressCard({
 
   return (
     <section className="card p-5">
-      <h2 className="font-bold">Saved addresses</h2>
+      <h2 className="flex items-center gap-2 font-bold"><MapPin size={16} /> Saved addresses</h2>
       <p className="muted mt-0.5 text-sm">Add a new one while booking a service.</p>
 
       {addresses === null ? (
@@ -408,6 +400,7 @@ function AddressCard({
                       setConfirming(null);
                     }}
                   >
+                    <Trash2 size={13} />
                     {busy === `addr:${a.id}` ? "Removing…" : "Yes, remove"}
                   </button>
                   <button className="btn-ghost text-xs" onClick={() => setConfirming(null)}>

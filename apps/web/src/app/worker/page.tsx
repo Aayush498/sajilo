@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { toast } from "sonner";
+import { BadgeCheck, Briefcase, Clock, MapPin, Wallet } from "lucide-react";
 import {
   ApiError,
   api,
@@ -12,7 +14,8 @@ import {
 import { useAuth } from "@/lib/auth";
 import { SERVICE_EMOJI, duration, npr, when } from "@/lib/format";
 import { LoginDialog } from "@/components/LoginDialog";
-import { Empty, ErrorNote, Spinner, StatusBadge } from "@/components/ui";
+import { usePolling } from "@/hooks/usePolling";
+import { CardSkeleton, Empty, ErrorNote, Spinner, StatusBadge } from "@/components/ui";
 
 /** What the worker can do next, per status. */
 const NEXT_ACTION: Record<string, { path: string; label: string }[]> = {
@@ -82,12 +85,9 @@ export default function WorkerPage() {
   }, [load]);
 
   // The pool is a race between workers, so it has to stay fresh without a
-  // manual refresh — this is the worker's live queue.
-  useEffect(() => {
-    if (!isWorker) return;
-    const t = setInterval(() => load().catch(() => undefined), 5000);
-    return () => clearInterval(t);
-  }, [isWorker, load]);
+  // manual refresh — this is the worker's live queue. Pauses when the tab is
+  // hidden; there is nobody looking at it.
+  usePolling(() => load().catch(() => undefined), 5000, isWorker);
 
   async function run(key: string, fn: () => Promise<unknown>) {
     setBusy(key);
@@ -96,8 +96,12 @@ export default function WorkerPage() {
       await fn();
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "That did not work.");
-      // Losing a race leaves a stale pool on screen, so refresh either way.
+      const message = e instanceof ApiError ? e.message : "That did not work.";
+      // Losing a race is normal, not a failure — it deserves a toast the
+      // worker can ignore, not a red box pinned to the page.
+      if (e instanceof ApiError && e.code === "JOB_ALREADY_TAKEN") toast(message);
+      else setError(message);
+      // Either way the pool on screen is stale now.
       await load().catch(() => undefined);
     } finally {
       setBusy(null);
@@ -117,7 +121,10 @@ export default function WorkerPage() {
     );
 
   const claim = (b: Booking) =>
-    run(`${b.id}:claim`, () => api.post(`/worker/available-jobs/${b.id}/claim`));
+    run(`${b.id}:claim`, async () => {
+      await api.post(`/worker/available-jobs/${b.id}/claim`);
+      toast.success(`${b.service_name} is yours`, { description: b.reference });
+    });
 
   const toggleTrade = (serviceId: string) => {
     if (!profile) return;
@@ -174,7 +181,10 @@ export default function WorkerPage() {
             onClick={toggleAvailability}
             title={verified ? undefined : "Unlocked once your account is verified"}
           >
-            {profile.is_available ? "🟢 Available for work" : "⚪ Not taking jobs"}
+            <>
+              <BadgeCheck size={15} />
+              {profile.is_available ? "Available for work" : "Not taking jobs"}
+            </>
           </button>
         )}
       </div>
@@ -228,7 +238,7 @@ export default function WorkerPage() {
           <Tile label="Jobs done" value={String(earnings.jobs_completed)} />
           <Tile label="Gross" value={npr(earnings.gross_amount)} />
           <Tile label="Commission" value={`− ${npr(earnings.commission_deducted)}`} />
-          <Tile label="You earned" value={npr(earnings.net_earnings)} highlight />
+          <Tile label="You earned" value={npr(earnings.net_earnings)} highlight icon={<Wallet size={14} />} />
         </div>
       )}
 
@@ -271,9 +281,9 @@ export default function WorkerPage() {
                 </div>
 
                 <div className="muted mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
-                  <span>🗓️ {when(j.scheduled_at)}</span>
-                  <span>⏱️ {duration(j.duration_minutes)}</span>
-                  <span>📍 {j.address?.one_line}</span>
+                  <span className="inline-flex items-center gap-1.5"><Clock size={13} /> {when(j.scheduled_at)}</span>
+                  <span className="inline-flex items-center gap-1.5"><Clock size={13} /> {duration(j.duration_minutes)}</span>
+                  <span className="inline-flex items-center gap-1.5"><MapPin size={13} /> {j.address?.one_line}</span>
                 </div>
                 {j.notes && (
                   <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-500/10">
@@ -298,7 +308,7 @@ export default function WorkerPage() {
       <section className="space-y-3">
         <h2 className="text-xl font-bold">My jobs</h2>
         {jobs === null ? (
-          <Spinner />
+          <CardSkeleton rows={2} />
         ) : active.length === 0 ? (
           <Empty title="No active jobs" hint="Jobs you accept show up here." />
         ) : (
@@ -397,10 +407,23 @@ export default function WorkerPage() {
   );
 }
 
-function Tile({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function Tile({
+  label,
+  value,
+  highlight,
+  icon,
+}: {
+  label: string;
+  value: string;
+  highlight?: boolean;
+  icon?: ReactNode;
+}) {
   return (
     <div className={`card p-4 ${highlight ? "border-brand-400 dark:border-brand-600" : ""}`}>
-      <p className="muted text-xs font-semibold uppercase tracking-wide">{label}</p>
+      <p className="muted flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
+        {icon}
+        {label}
+      </p>
       <p
         className={`mt-1 text-xl font-black ${highlight ? "text-brand-600 dark:text-brand-400" : ""}`}
       >
