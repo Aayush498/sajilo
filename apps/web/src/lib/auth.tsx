@@ -11,14 +11,21 @@ import {
 } from "react";
 import { api, tokens, type AuthSession, type Role, type User } from "./api";
 
+export interface ProfilePatch {
+  full_name?: string;
+  email?: string | null;
+  locale?: string;
+}
+
 interface AuthState {
   user: User | null;
   ready: boolean;
   requestOtp: (phone: string, role: Role) => Promise<{ debug_code: string | null }>;
   verifyOtp: (phone: string, code: string, role: Role) => Promise<User>;
   adminLogin: (email: string, password: string) => Promise<User>;
-  updateProfile: (patch: { full_name?: string; locale?: string }) => Promise<User>;
+  updateProfile: (patch: ProfilePatch) => Promise<User>;
   logout: () => Promise<void>;
+  logoutEverywhere: () => Promise<void>;
 }
 
 const Ctx = createContext<AuthState | null>(null);
@@ -72,6 +79,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } catch {
             /* ignore */
           }
+        }
+        tokens.clear();
+        setUser(null);
+      },
+      logoutEverywhere: async () => {
+        // Revokes every session server-side, so a lost phone cannot stay
+        // signed in. Needs the access token, so it runs before clearing.
+        try {
+          await api.post("/auth/logout-all");
+        } catch {
+          /* fall through — local state must still be dropped */
         }
         tokens.clear();
         setUser(null);

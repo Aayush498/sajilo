@@ -21,16 +21,12 @@ export function LoginDialog({
   onClose: () => void;
   title?: string;
 }) {
-  const { requestOtp, verifyOtp, adminLogin, updateProfile } = useAuth();
+  const { requestOtp, verifyOtp, adminLogin } = useAuth();
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [email, setEmail] = useState("admin@sajilo.com.np");
   const [password, setPassword] = useState("ChangeMeNow123!");
   const [sent, setSent] = useState(false);
-  // A first-time user has no name yet, and the other side of the job sees it —
-  // the customer needs to know who is turning up, and vice versa.
-  const [needsName, setNeedsName] = useState(false);
-  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,14 +51,10 @@ export function LoginDialog({
 
   const verify = () =>
     run(async () => {
-      const user = await verifyOtp(phone, code, role as Role);
-      if (user.full_name) onClose();
-      else setNeedsName(true);
-    });
-
-  const saveName = () =>
-    run(async () => {
-      await updateProfile({ full_name: name.trim() });
+      await verifyOtp(phone, code, role as Role);
+      // A first-timer has no name yet; <ProfileGate> asks for it once this
+      // closes. It has to live outside this dialog — signing in can unmount
+      // the page that owns the dialog.
       onClose();
     });
 
@@ -82,43 +74,16 @@ export function LoginDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-lg font-bold">
-          {needsName
-            ? "Welcome to Sajilo"
-            : (title ?? (role === "admin" ? "Admin sign in" : `Sign in as ${role}`))}
+          {title ?? (role === "admin" ? "Admin sign in" : `Sign in as ${role}`)}
         </h2>
         <p className="muted mt-1 mb-5 text-sm">
-          {needsName
-            ? role === "worker"
-              ? "Customers see this name when you take their job."
-              : "So your professional knows who they are meeting."
-            : role === "admin"
-              ? "Use the seeded operations account."
-              : "We'll text you a six-digit code."}
+          {role === "admin"
+            ? "Use the seeded operations account."
+            : "We'll text you a six-digit code."}
         </p>
 
         <div className="space-y-4">
-          {needsName ? (
-            <>
-              <Field label="Your name">
-                <input
-                  className="input"
-                  placeholder="Anjali Maharjan"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && name.trim().length > 1 && saveName()}
-                  autoFocus
-                />
-              </Field>
-              {error && <ErrorNote message={error} />}
-              <button
-                className="btn-primary w-full"
-                disabled={busy || name.trim().length < 2}
-                onClick={saveName}
-              >
-                {busy ? "Saving…" : "Finish"}
-              </button>
-            </>
-          ) : role === "admin" ? (
+          {role === "admin" ? (
             <>
               <Field label="Email">
                 <input
@@ -193,7 +158,7 @@ export function LoginDialog({
           {role === "admin" && error && <ErrorNote message={error} />}
         </div>
 
-        {role !== "admin" && !needsName && (
+        {role !== "admin" && (
           <div className="mt-5 border-t pt-4" style={{ borderColor: "var(--border)" }}>
             <p className="muted mb-2 text-xs font-semibold uppercase tracking-wide">
               Demo accounts

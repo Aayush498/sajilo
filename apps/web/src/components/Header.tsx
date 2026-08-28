@@ -6,12 +6,29 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { LoginDialog } from "./LoginDialog";
 
-const NAV = [
-  { href: "/", label: "Home" },
-  { href: "/book", label: "Book" },
-  { href: "/orders", label: "My orders" },
-  { href: "/worker", label: "Worker" },
-  { href: "/admin", label: "Admin" },
+import type { Role } from "@/lib/api";
+
+/**
+ * Who each link is for.
+ *
+ *   roles      which signed-in roles see it ("all" = any signed-in user)
+ *   anonymous  whether a signed-out visitor sees it
+ *
+ * Showing a customer the worker portal or the admin board only dead-ends them
+ * at a sign-in wall for an account they do not have. But a professional who
+ * has not signed in yet still needs a way to find their portal, so /worker
+ * stays visible while signed out. /admin does not — staff know the URL, and
+ * there is no reason to advertise it to the public.
+ */
+type NavItem = { href: string; label: string; roles: Role[] | "all"; anonymous: boolean };
+
+const NAV: NavItem[] = [
+  { href: "/", label: "Home", roles: "all", anonymous: true },
+  { href: "/book", label: "Book", roles: "all", anonymous: true },
+  { href: "/orders", label: "My orders", roles: ["customer"], anonymous: true },
+  { href: "/worker", label: "Worker", roles: ["worker"], anonymous: true },
+  { href: "/admin", label: "Admin", roles: ["admin"], anonymous: false },
+  { href: "/account", label: "Account", roles: "all", anonymous: false },
 ];
 
 function ThemeToggle() {
@@ -46,6 +63,12 @@ export function Header() {
   const { user, ready, logout } = useAuth();
   const [login, setLogin] = useState(false);
 
+  // Until `ready`, treat the visitor as anonymous. Flashing the admin link at
+  // everyone for one frame looks like a leak.
+  const nav = NAV.filter((n) =>
+    ready && user ? n.roles === "all" || n.roles.includes(user.role) : n.anonymous,
+  );
+
   return (
     <>
       <header
@@ -69,7 +92,7 @@ export function Header() {
           </Link>
 
           <nav className="ml-auto hidden items-center gap-1 md:flex">
-            {NAV.map((n) => (
+            {nav.map((n) => (
               <Link
                 key={n.href}
                 href={n.href}
@@ -107,7 +130,7 @@ export function Header() {
         </div>
 
         <nav className="flex gap-1 overflow-x-auto px-4 pb-2 md:hidden">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <Link
               key={n.href}
               href={n.href}

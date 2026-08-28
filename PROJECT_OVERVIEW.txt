@@ -1,0 +1,802 @@
+===============================================================================
+                    S A J I L O  —  PROJECT OVERVIEW
+              Read this first. No prior knowledge assumed.
+===============================================================================
+ Last updated: 2026-08-29
+ Repo:         https://github.com/Aayush498/sajilo  (private)
+===============================================================================
+
+
+CONTENTS
+-------------------------------------------------------------------------------
+  1.  What Sajilo is
+  2.  The three kinds of people who use it
+  3.  The tech stack, and why each piece is there
+  4.  How the pieces talk to each other
+  5.  Where the code lives
+  6.  What the database stores
+  7.  THE COMPLETE FLOW — one booking, followed all the way through
+  8.  The rules that make it trustworthy
+  9.  How to run it on your machine
+  10. Glossary — every technical word used above
+
+
+===============================================================================
+ 1.  WHAT SAJILO IS
+===============================================================================
+
+Sajilo is a website where someone in Kathmandu can book a trusted person to
+come to their home and do a job — clean the house, fix a tap, repair the AC.
+
+"Sajilo" means "easy" in Nepali.
+
+The problem it solves is not really "finding a plumber". You can find a
+plumber. The problem is that you are about to let a stranger into your home,
+you do not know if they are any good, and you have no idea what the fair price
+is until they are already standing in your kitchen.
+
+So Sajilo does three things:
+
+  1. Every professional is identity-checked and approved before they can
+     take a single job.
+  2. The price is fixed and shown BEFORE you book. No haggling, no surprise.
+  3. There is a warranty. If the work is bad, someone comes back and fixes it.
+
+Sajilo makes money by taking a cut (a "commission") of each job — between
+15% and 20% depending on the service. The customer pays the full price; the
+professional receives the rest.
+
+Five services at launch:
+    House Cleaning · Electrician · Plumber · Carpenter · AC Repair
+
+One city at launch: Kathmandu. Six more are already in the database
+(Lalitpur, Bhaktapur, Pokhara, Bharatpur, Biratnagar, Butwal), switched off
+until we are ready.
+
+
+===============================================================================
+ 2.  THE THREE KINDS OF PEOPLE WHO USE IT
+===============================================================================
+
+  CUSTOMER  — books a job, pays cash when it is done, rates the work.
+              Signs in with their mobile number.
+
+  WORKER    — the professional. Cleaner, electrician, plumber, carpenter,
+              AC technician. Takes jobs, does them, gets paid.
+              Signs in with their mobile number.
+
+  ADMIN     — Sajilo staff. Approves workers, watches the live job board,
+              can assign a worker to a job manually, sees the money.
+              Signs in with an email and password.
+
+In the code these are called "roles". A person has exactly one role, fixed
+when they first sign up. A worker cannot sign in as a customer, and vice
+versa — the system refuses and tells them which app to use.
+
+
+===============================================================================
+ 3.  THE TECH STACK, AND WHY EACH PIECE IS THERE
+===============================================================================
+
+Think of the system as four separate programs running at the same time, each
+in its own isolated box. The boxes are called "containers" and Docker is what
+runs them.
+
+-------------------------------------------------------------------------------
+ THE WEBSITE  (what people actually see)
+-------------------------------------------------------------------------------
+  Next.js 15        A framework for building websites, based on React.
+  React 19          The library that draws the buttons, forms and lists,
+                    and re-draws them when something changes.
+  TypeScript        JavaScript with type-checking. It catches mistakes like
+                    "you spelled this field wrong" before the code ever runs.
+  Tailwind CSS v4   How the styling is written. Instead of a separate style
+                    file, you write styles directly on the element, e.g.
+                    class="rounded-xl bg-brand-600 text-white".
+
+  Runs on:  http://localhost:3000
+
+  WHY: Next.js is the standard choice for a React site that needs to be fast
+  and appear properly in Google search results. It renders pages on the
+  server first, so the visitor sees content immediately rather than a blank
+  screen waiting for JavaScript.
+
+-------------------------------------------------------------------------------
+ THE API  (the brain — all the rules and decisions)
+-------------------------------------------------------------------------------
+  Python 3.12       The language.
+  FastAPI           The web framework. Turns Python functions into web
+                    addresses the website can call.
+  SQLAlchemy 2.0    Lets Python talk to the database using Python objects
+                    instead of hand-written SQL.
+  Alembic           Version control for the database structure. When you add
+                    a new column, Alembic records how to add it, so every
+                    machine and every server ends up with the same shape.
+  Pydantic          Checks that incoming data is the right shape before any
+                    of our code touches it. If someone sends "rating": 99,
+                    it is rejected at the door.
+  PyJWT             Creates and reads the login tokens.
+  Argon2            Scrambles the admin password so that even we cannot read
+                    it. Currently the strongest recommended method.
+  phonenumbers      Google's real phone-number library. Knows which Nepali
+                    number ranges genuinely exist. This is why 978xxxxxxx is
+                    rejected but 984xxxxxxx is accepted.
+  structlog         Writes log lines as structured data rather than loose
+                    text, so they can be searched properly later.
+
+  Runs on:  http://localhost:8000
+  Docs at:  http://localhost:8000/docs   <- a live, clickable list of every
+                                            endpoint, generated automatically
+
+  WHY: FastAPI is fast, and it generates that documentation page for free
+  from the code itself, so the docs can never drift out of date.
+
+-------------------------------------------------------------------------------
+ THE DATABASE  (permanent memory)
+-------------------------------------------------------------------------------
+  PostgreSQL 16     Stores everything that must survive a restart: users,
+                    bookings, prices, reviews, the audit trail.
+
+  WHY Postgres specifically: two features this project genuinely depends on.
+    - Native enums, so the database itself refuses an invalid status.
+    - SELECT ... FOR UPDATE, which locks a single row so two people cannot
+      grab the same job at the same instant. (See section 8.)
+
+-------------------------------------------------------------------------------
+ THE CACHE  (short-term memory)
+-------------------------------------------------------------------------------
+  Redis 7           Stores things that are only briefly useful:
+                      - login codes (OTPs), which expire after 5 minutes
+                      - rate-limit counters ("this number has asked for 5
+                        codes in 15 minutes — that is enough")
+
+  WHY not just use Postgres: these values are written constantly and thrown
+  away minutes later. Redis holds them in memory and expires them
+  automatically, so nothing needs cleaning up.
+
+-------------------------------------------------------------------------------
+ THE GLUE
+-------------------------------------------------------------------------------
+  Docker            Runs all four boxes with one command, identically on any
+                    machine. Nobody has to install Python or Postgres by hand.
+  docker-compose    The file that describes those four boxes and how they
+                    connect.
+  dev.ps1           A small Windows PowerShell helper so you type
+                    ".\dev.ps1 up" instead of six separate commands.
+  pytest            Runs the automated tests. 38 of them.
+  ruff              Checks Python style and formatting.
+
+
+===============================================================================
+ 4.  HOW THE PIECES TALK TO EACH OTHER
+===============================================================================
+
+    ┌──────────────┐
+    │   BROWSER    │   You, clicking things
+    └──────┬───────┘
+           │  loads the page from
+           ▼
+    ┌──────────────┐
+    │   WEB        │   Next.js  ·  port 3000
+    │  (Next.js)   │   Draws the screens. Holds NO rules and NO secrets.
+    └──────┬───────┘
+           │  asks for data over HTTP  (e.g. GET /api/v1/bookings)
+           ▼
+    ┌──────────────┐
+    │   API        │   FastAPI  ·  port 8000
+    │  (FastAPI)   │   ALL the rules live here. Who may do what, what
+    │              │   things cost, which moves are legal.
+    └───┬──────┬───┘
+        │      │
+        ▼      ▼
+  ┌─────────┐ ┌─────────┐
+  │POSTGRES │ │  REDIS  │
+  │  5432   │ │  6379   │
+  │permanent│ │temporary│
+  └─────────┘ └─────────┘
+
+THE MOST IMPORTANT IDEA HERE:
+
+  The website is a "dumb" layer. It draws things and collects clicks.
+  It decides nothing.
+
+  Every rule lives in the API. So a clever person cannot open the browser's
+  developer tools and give themselves a discount, or see the commission we
+  take, or accept a job they are not qualified for. The browser is simply
+  never told those things in the first place, and any request it sends is
+  re-checked by the API before anything happens.
+
+
+===============================================================================
+ 5.  WHERE THE CODE LIVES
+===============================================================================
+
+sajilo/
+│
+├── docker-compose.yml     Describes the 4 containers. Start here.
+├── dev.ps1                Convenience commands (up, test, logs, reset...)
+├── .env                   Real secrets for YOUR machine. Never committed.
+├── .env.example           A blank template of .env, safe to commit.
+│
+├── services/api/                        THE BACKEND
+│   ├── Dockerfile                       How to build the API container
+│   ├── pyproject.toml                   List of Python libraries needed
+│   ├── alembic/versions/                Database structure changes, in order
+│   │
+│   ├── app/
+│   │   ├── main.py                      Starts the app, wires everything up
+│   │   │
+│   │   ├── core/                        Foundations
+│   │   │   ├── config.py                Reads settings from .env
+│   │   │   ├── security.py              Passwords and login tokens
+│   │   │   ├── errors.py                Turns problems into tidy responses
+│   │   │   └── redis.py                 Redis connection + rate limiting
+│   │   │
+│   │   ├── models/                      WHAT THE DATABASE LOOKS LIKE
+│   │   │   ├── user.py                  A person
+│   │   │   ├── worker.py                A professional's profile + trades
+│   │   │   ├── catalog.py               Cities, services, prices
+│   │   │   ├── customer.py              Saved addresses
+│   │   │   ├── booking.py               A job, its payment, its review
+│   │   │   └── enums.py                 *** THE RULEBOOK OF LEGAL MOVES ***
+│   │   │
+│   │   ├── schemas/                     THE SHAPE OF DATA IN AND OUT
+│   │   │                                (what a valid request looks like,
+│   │   │                                 and what we send back)
+│   │   │
+│   │   ├── services/                    THE ACTUAL THINKING
+│   │   │   ├── auth.py                  Sign up, sign in, sessions
+│   │   │   ├── otp.py                   Generate and check login codes
+│   │   │   ├── booking.py               *** THE HEART OF THE APP ***
+│   │   │   │                            pricing, creating, claiming,
+│   │   │   │                            moving a job through its stages
+│   │   │   ├── catalog_seed.py          The starting services and prices
+│   │   │   └── sms.py                   Sends the code (prints it, for now)
+│   │   │
+│   │   ├── api/v1/                      THE WEB ADDRESSES
+│   │   │   ├── auth.py                  /auth/...      login
+│   │   │   ├── catalog.py               /catalog/...   browse services
+│   │   │   ├── addresses.py             /addresses/... saved locations
+│   │   │   ├── bookings.py              /bookings/...  customer actions
+│   │   │   ├── worker.py                /worker/...    worker actions
+│   │   │   ├── admin.py                 /admin/...     staff actions
+│   │   │   └── health.py                /health/...    "are you alive?"
+│   │   │
+│   │   └── cli.py                       Commands: seed-admin, seed-catalog...
+│   │
+│   └── tests/                           38 automated tests
+│
+└── apps/web/                            THE WEBSITE
+    ├── Dockerfile
+    ├── package.json                     List of JavaScript libraries needed
+    └── src/
+        ├── app/                         One folder = one page
+        │   ├── page.tsx                 /          home page
+        │   ├── book/page.tsx            /book      the booking form
+        │   ├── orders/page.tsx          /orders    my bookings
+        │   ├── orders/[id]/page.tsx     /orders/x  one booking, live
+        │   ├── worker/page.tsx          /worker    the professional's portal
+        │   ├── admin/page.tsx           /admin     the staff dashboard
+        │   ├── account/page.tsx         /account   edit your own details
+        │   └── globals.css              Colours, fonts, button styles
+        │
+        ├── components/                  Reusable bits of screen
+        │   ├── Header.tsx               Top navigation bar (role-aware)
+        │   ├── LoginDialog.tsx          The sign-in pop-up
+        │   ├── ProfileGate.tsx          Asks a new user for their name
+        │   └── ui.tsx                   Badges, spinners, timelines
+        │
+        └── lib/
+            ├── api.ts                   Talks to the backend; stores tokens
+            ├── auth.tsx                 Remembers who is signed in
+            └── format.ts                "NPR 2,200", "2h 30m", status labels
+
+TWO FILES TO READ IF YOU ONLY READ TWO:
+
+    services/api/app/models/enums.py        the rulebook
+    services/api/app/services/booking.py    the heart
+
+
+===============================================================================
+ 6.  WHAT THE DATABASE STORES
+===============================================================================
+
+14 tables. Here is what each one is for, in plain words.
+
+  users                    Every person — customer, worker and admin alike.
+                           Phone, name, role, whether they are active.
+
+  refresh_tokens           Login sessions. One row per signed-in device, so
+                           "log out everywhere" is possible.
+
+  cities                   Kathmandu, Lalitpur, Pokhara... and whether each
+                           is switched on yet.
+
+  service_categories       "Cleaning", "Repairs & Maintenance".
+
+  services                 The 5 services. Each carries its commission rate
+                           and its warranty length.
+
+  service_packages         The actual bookable options with fixed prices.
+                           e.g. "2 BHK Full Cleaning — NPR 2,200 — 180 min".
+                           21 of these.
+
+  customer_addresses       Where a customer wants the work done. Kept even
+                           after deletion (marked "deleted") because past
+                           bookings still point at them.
+
+  worker_profiles          A professional's extra details: bio, years of
+                           experience, verification status, availability,
+                           star rating, number of jobs done.
+
+  worker_services          Which trades each worker is cleared for.
+                           This is what stops a plumber getting an AC job.
+
+  bookings                 THE CENTRAL TABLE. One row per job. Holds a
+                           frozen copy of the price at the moment of booking.
+
+  booking_status_history   Every change a booking ever went through, who did
+                           it and when. Append-only — nothing is ever edited
+                           or deleted. Every dispute starts by reading this.
+
+  payments                 One per booking. Cash only today; the shape is
+                           already right for eSewa / Khalti / Fonepay later.
+
+  reviews                  The customer's star rating and comment.
+
+  alembic_version          Bookkeeping: which database changes have been
+                           applied. Not business data.
+
+WHY THE BOOKING FREEZES ITS OWN PRICE:
+  A booking stores the service name, package name, unit price, total,
+  commission rate and payout as a snapshot at the moment it was created.
+  If we raise the price of a house clean next month, every past booking
+  must still show what that customer actually agreed to, and what that
+  worker was actually promised. Pointing at the live price list would
+  silently rewrite history.
+
+
+===============================================================================
+ 7.  THE COMPLETE FLOW — ONE BOOKING, FOLLOWED ALL THE WAY THROUGH
+===============================================================================
+
+We will follow a single job from "my tap is leaking" to "job closed, everyone
+paid", and at each step name the exact file doing the work.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ STEP 1 · The customer browses
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  They open http://localhost:3000
+
+  The browser loads the home page (apps/web/src/app/page.tsx). That page asks
+  the API for the service list:
+
+      GET /api/v1/catalog/services
+
+  No sign-in needed — browsing is the top of the funnel, and asking people to
+  register before they can even see prices loses most of them.
+
+  The API (app/api/v1/catalog.py) reads the services and their packages from
+  Postgres and returns them. The page shows five cards with "From NPR 600".
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ STEP 2 · The customer signs in
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  They click through to /book, choose Plumber, choose "Inspection Visit",
+  and are asked to sign in.
+
+  There is no password. It works like this:
+
+    (a) They type their mobile number.
+        -> POST /api/v1/auth/request-otp
+
+        The API normalises the number to +9779841234567 (app/utils/phone.py)
+        so that "9841234567", "098-4123-4567" and "+977 9841234567" are all
+        recognised as the same person rather than creating three accounts.
+
+        It checks the number is a real Nepali mobile. It checks rate limits
+        in Redis: max 5 codes per number per 15 minutes, max 20 per internet
+        connection, and a 60-second wait between codes.
+
+        It generates a 6-digit code, stores it in Redis for 5 minutes
+        (app/services/otp.py), and "sends" it.
+
+        >>> IN DEVELOPMENT NO SMS IS SENT. The code is printed to the logs
+        >>> and also returned in the response as "debug_code", which the
+        >>> website types into the box for you. In production this field
+        >>> disappears and a real SMS provider is plugged in.
+
+    (b) They submit the code.
+        -> POST /api/v1/auth/verify-otp
+
+        The API checks the code against Redis. Five wrong guesses and the
+        code is destroyed.
+
+        If correct: if this phone has never been seen, an account is created
+        right here. Verifying the code IS the registration — there is no
+        separate sign-up form.
+
+        The API then issues TWO tokens (app/services/auth.py):
+
+          ACCESS TOKEN   Short-lived, 15 minutes. Sent with every request as
+                         proof of who you are. It is a JWT: a small signed
+                         string the API can verify without a database lookup.
+
+          REFRESH TOKEN  Long-lived, 30 days. Its only job is to get a fresh
+                         access token when the old one expires. It is stored
+                         in the database (hashed), so it can be revoked.
+
+        WHY TWO: if an access token leaks, it is useless in 15 minutes. The
+        refresh token is used rarely and can be cancelled instantly. If
+        someone tries to reuse an already-used refresh token — a sign it was
+        stolen — every session for that user is killed.
+
+    (c) A brand-new user is asked for their name, because the person on the
+        other side of the job needs to know who is turning up.
+        -> PATCH /api/v1/users/me
+
+        This prompt lives in ProfileGate, which sits in the root layout
+        rather than inside the sign-in dialog. Signing in changes the very
+        state that pages branch on, so a prompt owned by the dialog can be
+        unmounted mid-flow by the page underneath it. A gate above the
+        router cannot be, and it also catches accounts that somehow ended
+        up nameless already.
+
+  The website stores the tokens in the browser's localStorage
+  (apps/web/src/lib/api.ts) and remembers the user (lib/auth.tsx).
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ STEP 3 · The customer places the order
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  They pick a saved address (or add one), choose "As soon as possible",
+  optionally type a note ("kitchen tap dripping"), and confirm.
+
+      POST /api/v1/bookings
+
+  Inside app/services/booking.py, create_booking() does the following, and
+  refuses the whole thing if any check fails:
+
+      - Is this package real and still active?
+      - Is this service still active?
+      - Does this address actually belong to THIS customer?
+        (Not just "does it exist" — otherwise you could book a job to
+         somebody else's house by guessing an ID.)
+      - Is the requested time in the future?
+
+  Then it works out the money — quote():
+
+      unit price          NPR 800.00     (frozen from the package)
+      quantity            1
+      total               NPR 800.00     <- the customer pays this
+      commission rate     0.180          (18%, from the service)
+      commission          NPR 144.00     <- Sajilo keeps this
+      worker payout       NPR 656.00     <- the professional gets this
+
+      The payout is calculated as total MINUS commission, never as its own
+      percentage. That way commission + payout always equals the total
+      exactly, with no half-paisa drifting off into nowhere.
+
+  It creates:
+      - the booking, with a human-friendly reference like SJ-260828-4Q4P
+        (short enough to read out over the phone to support)
+      - a payment row: method CASH, status PENDING
+      - the first audit entry: "create → pending"
+
+  Status is now:  PENDING   ("Finding a professional")
+
+  The customer lands on the order page, which quietly re-checks the booking
+  every 5 seconds so the screen updates by itself.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ STEP 4 · A professional takes the job   — TWO POSSIBLE PATHS
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  PATH A — THE WORKER TAKES IT THEMSELVES  (the normal case)
+
+    The worker opens /worker and their page asks:
+
+        GET /api/v1/worker/available-jobs
+
+    This returns open jobs, but ONLY those that are:
+        - still PENDING with nobody attached, AND
+        - for a trade this worker is cleared for
+
+    ...and only if the worker themselves is:
+        - VERIFIED by an admin, AND
+        - marked as available
+
+    A worker literally cannot see a job they are not allowed to take. The
+    filtering happens in the database query, not in the screen.
+
+    They see "Plumber — Inspection Visit · NPR 656 payout" and press
+    "Accept this job".
+
+        POST /api/v1/worker/available-jobs/{id}/claim
+
+    >>> THE INTERESTING BIT <<<
+    Two workers pressing Accept at the same moment is normal, not rare.
+    So claim_booking() locks the database row before it even reads the
+    status:
+
+            SELECT ... WHERE id = ... FOR UPDATE
+
+    The second request waits at that line until the first one finishes.
+    When it resumes, the job is no longer PENDING, so it is cleanly told
+    "Another professional already took this job" (error 409). One winner,
+    one polite refusal, never a double booking.
+
+    Status jumps straight to:  ACCEPTED
+    (It skips ASSIGNED, because nobody dispatched it — there is no offer
+     left to accept.)
+
+
+  PATH B — AN ADMIN DISPATCHES SOMEONE
+
+    Staff open /admin and see the live board. For an unassigned job they
+    click "Dispatch a worker":
+
+        GET /api/v1/admin/bookings/{id}/candidates
+
+    This lists only workers who are verified, available, AND cleared for
+    that exact service — best-rated first. A plumber can never appear as a
+    candidate for an AC job.
+
+        POST /api/v1/admin/bookings/{id}/assign
+
+    Status becomes:  ASSIGNED   ("Professional assigned")
+
+    Now the worker sees it under "My jobs" with two buttons:
+        Accept  -> status ACCEPTED
+        Decline -> status back to PENDING, worker detached, job returns to
+                   the open pool so somebody else can take it
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ STEP 5 · The moment of contact
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  As soon as the job is accepted, the customer's page (still polling every
+  5 seconds) updates on its own to "Confirmed", showing the professional's
+  name, star rating and phone number.
+
+  PHONE NUMBERS ARE ONLY SHARED WHILE THE JOB IS LIVE.
+  Before assignment there is nobody to call. After the job closes, the
+  reason to call is gone and support should handle it instead. This is
+  enforced in serialize() in app/services/booking.py — the number is simply
+  not included in the response outside that window.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ STEP 6 · Doing the work
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  The worker taps three buttons over the course of the job. Each one calls
+  the API, each one is checked against the rulebook, each one writes an
+  audit entry, and each one appears on the customer's screen within 5s.
+
+      "On my way"     POST /worker/jobs/{id}/start-travel   -> EN_ROUTE
+      "Start work"    POST /worker/jobs/{id}/start          -> IN_PROGRESS
+      "Mark complete
+       + collect cash" POST /worker/jobs/{id}/complete      -> COMPLETED
+
+  The complete step also:
+      - marks the payment PAID (they confirmed they took the cash)
+      - adds 1 to the worker's jobs-completed count
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ STEP 7 · The customer rates it, and the job closes
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      POST /api/v1/bookings/{id}/review     {"rating": 5, "comment": "..."}
+
+  This saves the review, then recalculates the worker's average star rating
+  by re-reading ALL their reviews — not by nudging a running average. That
+  way, if a review is ever corrected or removed, the average cannot be left
+  quietly wrong.
+
+  Rating also closes the booking.
+
+  Status:  CLOSED   — the end of the line.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ THE WHOLE JOURNEY ON ONE PAGE
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+                        ┌── worker claims it directly ──┐
+                        │                               ▼
+   PENDING ──assign──> ASSIGNED ──accept──> ACCEPTED ──> EN_ROUTE
+      │                    │                                │
+      │                  reject                             ▼
+      │                    │                          IN_PROGRESS
+      │                    ▼                                │
+      └──────────────► (back to PENDING)                    ▼
+      │                                                COMPLETED
+      │                                                     │
+      └────────── cancel ──────► CANCELLED           review │
+                                                            ▼
+                                                         CLOSED
+
+   Cancel is allowed up to EN_ROUTE. Once work has started, it is not —
+   somebody is already in the customer's home doing the job.
+
+   And what the audit trail looks like afterwards:
+
+        create        (none)      -> pending       by customer
+        claim         pending     -> accepted      by worker
+        start_travel  accepted    -> en_route      by worker
+        start_work    en_route    -> in_progress   by worker
+        complete      in_progress -> completed     by worker
+        close         completed   -> closed        by customer
+
+
+===============================================================================
+ 8.  THE RULES THAT MAKE IT TRUSTWORTHY
+===============================================================================
+
+These are the deliberate design decisions. If you change one, understand it
+first.
+
+ 1. ONE RULEBOOK FOR THE LIFECYCLE
+    Every legal move is listed in a single table called BOOKING_TRANSITIONS
+    (app/models/enums.py), which says "this action may start from these
+    statuses and lands on this one". Every move is checked against it.
+    An illegal jump is therefore impossible, rather than merely unlikely
+    because everyone remembered the rules. Adding a new stage means editing
+    one table, not hunting through the codebase.
+
+ 2. THE AUDIT TRAIL IS APPEND-ONLY
+    booking_status_history is never edited and never deleted. Who did what,
+    when, and any note they left. When a customer and a worker disagree
+    about what happened, this is the answer.
+
+ 3. VERIFICATION IS A STATE, NOT A CHECKBOX
+    A worker is PENDING → UNDER_REVIEW → VERIFIED or REJECTED. Only VERIFIED
+    workers can be attached to a job, by any route. Trust is the product, so
+    it gets a proper state machine rather than a true/false flag.
+
+ 4. TRADE MATCHING IS ENFORCED, NOT SUGGESTED
+    A worker declares their trades; the worker_services table records them.
+    Both the self-serve pool and the admin's candidate list filter on it,
+    and the claim/assign endpoints re-check it. A plumber cannot end up at
+    an AC job through any path.
+
+ 5. CUSTOMERS NEVER SEE OUR CUT
+    The customer is quoted one number: the price. The commission and the
+    worker's payout are stripped out server-side in serialize() before the
+    response is sent. Not hidden by CSS — genuinely absent from the data,
+    so browser developer tools reveal nothing.
+
+ 6. PRICES ARE FROZEN AT BOOKING TIME
+    See section 6. Changing the price list never rewrites history.
+
+ 7. MONEY CANNOT DRIFT
+    Payout = total − commission, by subtraction. Rounding uses the
+    "round half up" rule that ordinary people expect on an invoice, not
+    banker's rounding, which would look like a mistake to a customer.
+
+ 8. CONTESTED JOBS ARE LOCKED, NOT HOPED ABOUT
+    Row-level locking, explained in step 4 above. This is a real race that
+    happens in production; it is handled rather than wished away.
+
+ 9. A REVOKED SESSION DIES QUICKLY
+    Access tokens are stateless and last 15 minutes, but on every request
+    the API also checks the underlying session has not been revoked. That
+    caps the damage window after a logout or suspension at 15 minutes
+    instead of 30 days.
+
+10. 404 RATHER THAN 403 ON SOMEONE ELSE'S BOOKING
+    If you ask for a booking that is not yours, the answer is "not found",
+    not "forbidden". Confirming that a booking exists is itself a leak.
+
+
+===============================================================================
+ 9.  HOW TO RUN IT ON YOUR MACHINE
+===============================================================================
+
+ REQUIREMENT: Docker Desktop installed and running. Nothing else.
+
+      .\dev.ps1 up
+
+ That single command builds all four containers, creates the database
+ structure, loads the services and prices, and creates the demo accounts.
+ About two minutes the first time.
+
+ Then:
+      Website      http://localhost:3000
+      API          http://localhost:8000
+      API docs     http://localhost:8000/docs      <- try this, it is live
+
+ OTHER COMMANDS
+      .\dev.ps1 logs     watch everything happening, including login codes
+      .\dev.ps1 test     run the 38 automated tests
+      .\dev.ps1 lint     check code style and types
+      .\dev.ps1 seed     re-create demo accounts and prices
+      .\dev.ps1 psql     open a database shell
+      .\dev.ps1 down     stop everything
+      .\dev.ps1 reset    wipe the database and start completely fresh
+
+ LOGIN DETAILS
+      See DEV_CREDENTIALS.txt in this same folder.
+      (That file is deliberately excluded from git.)
+
+ TO SEE THE WHOLE THING WORK
+      Open three separate browser contexts — note that Chrome incognito
+      windows share storage with each other, so use e.g. Chrome normal +
+      Chrome incognito + Edge. Sign in as customer, worker and admin, put
+      the customer and worker windows side by side, and watch the customer
+      screen change by itself as the worker taps through the job.
+
+ WHAT IS NOT BUILT YET
+      - Online payment (eSewa, Khalti, Fonepay). Cash only today, though
+        the payments table already has the right shape for them.
+      - Real SMS. Codes are printed to the logs.
+      - Push notifications and live worker location on a map.
+      - Uploading KYC documents and photos.
+      - The Flutter mobile apps for customers and workers.
+
+
+===============================================================================
+ 10.  GLOSSARY
+===============================================================================
+
+ API             A way for one program to ask another program for something,
+                 over the network. Our website talks to our backend this way.
+
+ Endpoint        One specific web address the API answers on, together with
+                 the method. e.g. "POST /api/v1/bookings" = create a booking.
+
+ HTTP methods    GET = fetch something.  POST = do something / create.
+                 PATCH = change part of something.  PUT = replace it.
+                 DELETE = remove it.
+
+ Status codes    200 = fine. 201 = created. 400 = your request was wrong.
+                 401 = you are not signed in. 403 = signed in but not
+                 allowed. 404 = not found. 409 = conflict (e.g. somebody
+                 already took that job). 500 = we broke.
+
+ JSON            The text format used to send data around. Looks like
+                 { "status": "pending", "total_amount": "800.00" }
+
+ Token / JWT     A signed string proving who you are, sent with each request
+                 instead of your password.
+
+ OTP             One-Time Password. The 6-digit code texted to you.
+
+ Container       An isolated box holding one program and everything it needs
+                 to run. Behaves the same on every machine.
+
+ Docker          The tool that runs containers.
+
+ Migration       A recorded change to the database's structure, so every
+                 machine can apply the same changes in the same order.
+
+ ORM             A translator between database rows and objects in code, so
+                 you write Python instead of SQL. Ours is SQLAlchemy.
+
+ Schema          A definition of what shape some data must have.
+
+ Endpoint guard  A check that runs before an endpoint's code, e.g. "only
+                 admins past this point".
+
+ Rate limiting   Refusing to answer someone who is asking far too often —
+                 protects against abuse and brute-force guessing.
+
+ Seeding         Loading the starting data (cities, services, prices, demo
+                 accounts) into an empty database.
+
+ Polling         Asking "any news?" every few seconds. Simpler than a live
+                 connection, and a 5-second delay is invisible here.
+
+ localStorage    A small store inside the browser where the website keeps
+                 your login tokens so you stay signed in after a refresh.
+
+ E.164           The international standard way to write a phone number:
+                 +9779841234567. We store every number in this form.
+
+ Commission      Sajilo's cut of each job. 15%-20% depending on service.
+
+ Payout          What the professional receives: total minus commission.
+
+ NPR             Nepalese Rupee.
+
+ BHK             Bedroom-Hall-Kitchen. How flat sizes are described in
+                 South Asia. "2 BHK" = two bedrooms, a living room, kitchen.
+
+===============================================================================
+                              END OF DOCUMENT
+===============================================================================
