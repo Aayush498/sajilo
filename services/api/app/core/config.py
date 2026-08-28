@@ -99,9 +99,33 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """Load settings, refusing to boot production with development defaults.
+
+    Each of these fails loudly at startup rather than at 3am. A wrong CORS
+    origin in particular does not error anywhere — the API answers normally and
+    the browser silently discards every response, which looks like the frontend
+    being broken.
+    """
     settings = Settings()
-    if settings.is_production and settings.SECRET_KEY.startswith("dev-only"):
-        raise RuntimeError("SECRET_KEY must be set to a real secret in production.")
+    if not settings.is_production:
+        return settings
+
+    problems: list[str] = []
+    if settings.SECRET_KEY.startswith("dev-only"):
+        problems.append("SECRET_KEY is still the development default.")
+    if any("localhost" in o or "127.0.0.1" in o for o in settings.CORS_ORIGINS):
+        problems.append(
+            f"CORS_ORIGINS still points at localhost ({', '.join(settings.CORS_ORIGINS)}). "
+            "Set it to the real site origin, or browsers will drop every response."
+        )
+    if settings.DEBUG:
+        problems.append("DEBUG is true.")
+    if settings.SEED_ADMIN_PASSWORD == "ChangeMeNow123!":
+        problems.append("SEED_ADMIN_PASSWORD is still the documented default.")
+
+    if problems:
+        detail = "\n  - ".join(problems)
+        raise RuntimeError(f"Refusing to start in production:\n  - {detail}")
     return settings
 
 
