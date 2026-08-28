@@ -1,0 +1,80 @@
+name: sajilo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sajilo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sajilo_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-sajilo}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sajilo} -d ${POSTGRES_DB:-sajilo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./services/api
+      target: dev
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      # Bind-mount for hot reload. Safe to mount over /app because dependencies
+      # live in /usr/local/lib, not here.
+      - ./services/api:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command:
+      ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  web:
+    build:
+      context: ./apps/web
+      target: dev
+    restart: unless-stopped
+    environment:
+      # Inlined into the client bundle, so it is the URL the *browser* uses —
+      # localhost, not the compose service name.
+      NEXT_PUBLIC_API_BASE: http://localhost:8000/api/v1
+      WATCHPACK_POLLING: "true"   # file events do not cross the Windows bind mount
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/web:/app
+      # Keeps the image's node_modules from being hidden by the bind mount.
+      - web_node_modules:/app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:
+  web_node_modules:

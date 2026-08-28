@@ -1,0 +1,42 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Flutter
+.dart_tool/
+.flutter-plugins*
+build/
+*.iml
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local dev credentials — plaintext accounts, never commit
+DEV_CREDENTIALS.txt
+
+# Local data
+postgres_data/
+uploads/
+*.log
