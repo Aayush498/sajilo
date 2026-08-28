@@ -183,7 +183,7 @@ You still need Postgres and Redis reachable at the URLs in `.env`.
 | 2 | Geography & service catalog (cities, zones, fixed pricing) | ✅ |
 | 3 | Customer addresses; worker onboarding, trades & verification | ✅ |
 | 4 | Booking lifecycle, self-serve claim and admin dispatch | ✅ |
-| 5 | Web app: customer, worker portal, admin board | ✅ |
+| 5 | Web app: customer, worker portal, admin board, account page | ✅ |
 | 6 | Online payments (eSewa, Khalti, Fonepay) and invoices | ⬜ |
 | 7 | Push notifications and live worker location | ⬜ |
 | 8 | Flutter customer & worker apps | ⬜ |

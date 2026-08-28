@@ -51,7 +51,12 @@ async def update_profile(
     body: WorkerProfileUpdate, worker: CurrentWorker, db: DbSession
 ) -> WorkerProfile:
     profile = await _profile(db, worker.id)
-    for field, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
+    # As in users.py: an omitted field is left alone, but an explicit null
+    # clears the bio. experience_years and is_available are not nullable.
+    updates = body.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        if value is None and field != "bio":
+            continue
         setattr(profile, field, value)
     await db.commit()
     await db.refresh(profile)

@@ -23,9 +23,17 @@ async def read_me(user: CurrentUser) -> User:
 
 @router.patch("/me", response_model=UserRead, summary="Update the current user's profile")
 async def update_me(body: UserUpdate, user: CurrentUser, db: DbSession) -> User:
-    updates = body.model_dump(exclude_unset=True, exclude_none=True)
+    # exclude_unset keeps the difference between "field omitted" and
+    # "field explicitly null". Only email may be cleared — sending null for
+    # full_name or locale is a client mistake, and writing it would leave the
+    # user nameless or with no language.
+    updates = body.model_dump(exclude_unset=True)
+    updates = {k: v for k, v in updates.items() if v is not None or k == "email"}
 
-    if "email" in updates and updates["email"] != user.email:
+    # `updates["email"] is not None` matters: SQLAlchemy renders `== None` as
+    # `IS NULL`, so clearing an email would match every other user who also
+    # has none and wrongly report it as taken.
+    if updates.get("email") is not None and updates["email"] != user.email:
         taken = await db.scalar(
             select(User.id).where(User.email == updates["email"], User.id != user.id)
         )
