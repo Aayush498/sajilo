@@ -16,6 +16,7 @@ import { useAuth } from "@/lib/auth";
 import { POLL_MS, SERVICE_EMOJI, duration, npr, when } from "@/lib/format";
 import { LoginDialog } from "@/components/LoginDialog";
 import { TradePicker } from "@/components/TradePicker";
+import { WorkerOnboarding } from "@/components/WorkerOnboarding";
 import { usePolling } from "@/hooks/usePolling";
 import { CardSkeleton, Empty, ErrorNote, Spinner, StatusBadge } from "@/components/ui";
 
@@ -33,8 +34,8 @@ const NEXT_ACTION: Record<string, { path: string; label: string }[]> = {
 const VERIFICATION_COPY: Record<string, { tone: string; title: string; body: string }> = {
   pending: {
     tone: "bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200",
-    title: "Your account is awaiting verification",
-    body: "Pick the trades you work in below. Sajilo reviews every professional before their first job — open jobs appear here as soon as you are approved.",
+    title: "Waiting for Sajilo to verify you",
+    body: "Your trades are locked in and your account is with our team for review. Sajilo checks every professional before their first job — open jobs appear here the moment you are approved.",
   },
   under_review: {
     tone: "bg-sky-50 text-sky-900 dark:bg-sky-500/10 dark:text-sky-200",
@@ -131,17 +132,6 @@ export default function WorkerPage() {
       toast.success(`${b.service_name} is yours`, { description: b.reference });
     });
 
-  const toggleTrade = (serviceId: string) => {
-    if (!profile || profile.services_locked) return;
-    const current = profile.services.map((s) => s.service_id);
-    const next = current.includes(serviceId)
-      ? current.filter((id) => id !== serviceId)
-      : [...current, serviceId];
-    return run(`trade:${serviceId}`, () =>
-      api.put<WorkerProfile>("/worker/services", { service_ids: next }),
-    );
-  };
-
   const toggleAvailability = () =>
     run("availability", () =>
       api.patch<WorkerProfile>("/worker/profile", { is_available: !profile?.is_available }),
@@ -163,6 +153,22 @@ export default function WorkerPage() {
         </button>
         {login && <LoginDialog role="worker" onClose={() => setLogin(false)} />}
       </div>
+    );
+  }
+
+  // Signing up is not finished until the worker has said what they do. Until
+  // then there is no dashboard worth showing — no jobs can match, and the
+  // verification the page talks about has nothing to review.
+  if (profile && profile.services.length === 0) {
+    return (
+      <WorkerOnboarding
+        services={services}
+        name={user.full_name ?? "Welcome"}
+        onDone={(updated) => {
+          setProfile(updated);
+          load().catch(() => undefined);
+        }}
+      />
     );
   }
 
@@ -212,7 +218,6 @@ export default function WorkerPage() {
           services={services}
           requests={requests}
           busy={busy}
-          onToggle={toggleTrade}
           onRequest={async (serviceId, note) => {
             await api.post("/worker/service-requests", { service_id: serviceId, note: note || null });
             await load();

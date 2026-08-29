@@ -1,9 +1,14 @@
-"""Trades are self-selected while onboarding, then frozen at verification.
+"""Trades are declared once during onboarding, and frozen from that moment.
 
-The point of the lock: what an admin approved was this person doing *these*
-trades. If the list stayed editable afterwards, a worker verified as a cleaner
-could tick "Electrician" and start taking electrical work in someone's home,
-and the verification would still say approved while meaning nothing.
+The point of the lock: what an admin reviews is a specific person offering a
+specific set of trades. If the list stayed editable, a worker could submit as a
+cleaner, sit in the review queue, and quietly become an electrician before
+anyone looked — support would approve a list they never actually read, and
+somebody would be doing electrical work in a stranger's home on the strength of
+it.
+
+Widening the list goes through support instead, which is a review of the
+addition rather than a silent swap.
 """
 
 import pytest
@@ -55,17 +60,67 @@ async def catalog(db: AsyncSession) -> None:
     await seed_catalog(db)
 
 
-async def test_trades_are_editable_before_verification(client: AsyncClient, catalog: None) -> None:
+async def test_a_new_worker_starts_with_nothing_declared(
+    client: AsyncClient, catalog: None
+) -> None:
+    """An empty, unlocked list is how the client knows onboarding is unfinished."""
+    worker = await _sign_in(client, WORKER, "worker")
+
+    profile = (await client.get("/worker/profile", headers=worker)).json()
+    assert profile["services"] == []
+    assert profile["services_locked"] is False
+    assert profile["verification_status"] == "pending"
+
+
+async def test_declaring_trades_locks_them_immediately(client: AsyncClient, catalog: None) -> None:
+    """Locked on submission, not on approval.
+
+    Locking only at approval left a window where the thing under review could
+    change underneath the reviewer.
+    """
     worker = await _sign_in(client, WORKER, "worker")
     cleaning = await _service_id(client, "house-cleaning")
+    electrician = await _service_id(client, "electrician")
 
     saved = await client.put("/worker/services", headers=worker, json={"service_ids": [cleaning]})
     assert saved.status_code == 200, saved.text
-    assert saved.json()["services_locked"] is False
     assert len(saved.json()["services"]) == 1
+    # Locked straight away, while still unverified.
+    assert saved.json()["services_locked"] is True
+    assert saved.json()["verification_status"] == "pending"
+
+    # Cannot widen it...
+    widened = await client.put(
+        "/worker/services", headers=worker, json={"service_ids": [cleaning, electrician]}
+    )
+    assert widened.status_code == 409
+    assert widened.json()["error"]["code"] == "SERVICES_LOCKED"
+
+    # ...and cannot swap it for something else either.
+    swapped = await client.put(
+        "/worker/services", headers=worker, json={"service_ids": [electrician]}
+    )
+    assert swapped.status_code == 409
+
+    # The list really is unchanged, not merely reported as such.
+    after = (await client.get("/worker/profile", headers=worker)).json()
+    assert [s["service_id"] for s in after["services"]] == [cleaning]
 
 
-async def test_verification_locks_the_trade_list(
+async def test_an_empty_declaration_is_refused(client: AsyncClient, catalog: None) -> None:
+    """Nothing to offer is not an answer to "what do you do?"."""
+    worker = await _sign_in(client, WORKER, "worker")
+
+    empty = await client.put("/worker/services", headers=worker, json={"service_ids": []})
+    assert empty.status_code == 422
+
+    # And it did not half-apply: onboarding is still open.
+    profile = (await client.get("/worker/profile", headers=worker)).json()
+    assert profile["services"] == []
+    assert profile["services_locked"] is False
+
+
+async def test_the_lock_survives_verification(
     client: AsyncClient, db: AsyncSession, catalog: None
 ) -> None:
     worker = await _sign_in(client, WORKER, "worker")
@@ -76,21 +131,11 @@ async def test_verification_locks_the_trade_list(
     await _verify(db, WORKER)
 
     assert (await client.get("/worker/profile", headers=worker)).json()["services_locked"] is True
-
-    # Cannot widen it...
     widened = await client.put(
         "/worker/services", headers=worker, json={"service_ids": [cleaning, electrician]}
     )
     assert widened.status_code == 409
     assert widened.json()["error"]["code"] == "SERVICES_LOCKED"
-
-    # ...and cannot narrow it either. Dropping a trade is also a change to
-    # what was approved, so it goes through support the same way.
-    narrowed = await client.put("/worker/services", headers=worker, json={"service_ids": []})
-    assert narrowed.status_code == 409
-
-    # The list really is unchanged, not merely reported as such.
-    assert len((await client.get("/worker/profile", headers=worker)).json()["services"]) == 1
 
 
 async def test_approved_request_clears_the_trade_immediately(
