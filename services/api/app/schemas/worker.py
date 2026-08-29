@@ -20,7 +20,10 @@ class WorkerServiceRead(BaseModel):
 class WorkerServicesUpdate(BaseModel):
     """The trades a worker says they do. Admin verification still gates work."""
 
-    service_ids: Annotated[list[uuid.UUID], Field(max_length=20)]
+    # At least one. This is the onboarding step that asks what the worker
+    # actually does, and it can only be answered once — an empty answer leaves
+    # them with no trades, no jobs, and onboarding still unfinished.
+    service_ids: Annotated[list[uuid.UUID], Field(min_length=1, max_length=20)]
 
 
 class ServiceRequestCreate(BaseModel):

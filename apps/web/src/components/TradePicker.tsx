@@ -16,18 +16,18 @@ const REQUEST_TONE: Record<string, string> = {
 };
 
 /**
- * The worker's trade list, in one of two modes.
+ * A worker's trade list, which is always frozen by the time this renders.
  *
- * Before verification it is editable. After verification it is frozen and a
- * change goes through support — the same rule the API enforces, read from
- * `services_locked` rather than re-derived here, so the two cannot drift.
+ * Trades are declared once, as the last step of signing up, and locked from
+ * that moment — see WorkerOnboarding. There used to be an editable mode here
+ * for workers awaiting verification; it is gone because that state no longer
+ * exists. Anything cleared is a fact, anything else is a request to support.
  */
 export function TradePicker({
   profile,
   services,
   requests,
   busy,
-  onToggle,
   onRequest,
   onWithdraw,
 }: {
@@ -35,7 +35,6 @@ export function TradePicker({
   services: Service[];
   requests: ServiceRequest[];
   busy: string | null;
-  onToggle: (serviceId: string) => void;
   onRequest: (serviceId: string, note: string) => Promise<void>;
   onWithdraw: (requestId: string) => void;
 }) {
@@ -44,7 +43,6 @@ export function TradePicker({
   const [submitting, setSubmitting] = useState(false);
 
   const mine = new Set(profile.services.map((s) => s.service_id));
-  const locked = profile.services_locked;
   const pending = new Set(
     requests.filter((r) => r.status === "pending").map((r) => r.service_id),
   );
@@ -72,13 +70,11 @@ export function TradePicker({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 font-bold">
-            What do you do?
-            {locked && <Lock size={14} className="text-brand-600 dark:text-brand-400" />}
+            What you do
+            <Lock size={14} className="text-brand-600 dark:text-brand-400" />
           </h2>
           <p className="muted mt-0.5 text-sm">
-            {locked
-              ? "Locked when Sajilo verified you. Ask support to add another trade."
-              : "You only ever see jobs for the trades you pick here."}
+            Locked when you declared them. Ask support to add another trade.
           </p>
         </div>
       </div>
@@ -88,51 +84,37 @@ export function TradePicker({
           const on = mine.has(s.id);
           const waiting = pending.has(s.id);
 
-          if (locked) {
-            // Cleared trades read as facts; everything else is a request.
-            return (
-              <button
-                key={s.id}
-                disabled={on || waiting || busy !== null}
-                onClick={() => setAsking(s)}
-                title={on ? "You are cleared for this" : waiting ? "Waiting for support" : undefined}
-                className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-all ${
-                  on
-                    ? "border-brand-500 bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200"
-                    : waiting
-                      ? "border-amber-400 bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200"
-                      : "hover:border-brand-400"
-                }`}
-                style={on || waiting ? undefined : { borderColor: "var(--border)" }}
-              >
-                <span>{SERVICE_EMOJI[s.slug] ?? "🛠️"}</span>
-                {s.name}
-                {on ? <Lock size={12} /> : waiting ? <span className="text-xs">pending</span> : <Plus size={13} />}
-              </button>
-            );
-          }
-
+          // Cleared trades read as facts; everything else is a request.
           return (
             <button
               key={s.id}
-              disabled={busy !== null}
-              onClick={() => onToggle(s.id)}
-              className={`rounded-xl border px-3 py-2 text-sm font-medium transition-all disabled:opacity-50 ${
+              disabled={on || waiting || busy !== null}
+              onClick={() => setAsking(s)}
+              title={on ? "You are cleared for this" : waiting ? "Waiting for support" : undefined}
+              className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-all ${
                 on
                   ? "border-brand-500 bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200"
-                  : "hover:border-brand-400"
+                  : waiting
+                    ? "border-amber-400 bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200"
+                    : "hover:border-brand-400"
               }`}
-              style={on ? undefined : { borderColor: "var(--border)" }}
+              style={on || waiting ? undefined : { borderColor: "var(--border)" }}
             >
-              <span className="mr-1.5">{SERVICE_EMOJI[s.slug] ?? "🛠️"}</span>
+              <span>{SERVICE_EMOJI[s.slug] ?? "🛠️"}</span>
               {s.name}
-              {on && <span className="ml-1.5">✓</span>}
+              {on ? (
+                <Lock size={12} />
+              ) : waiting ? (
+                <span className="text-xs">pending</span>
+              ) : (
+                <Plus size={13} />
+              )}
             </button>
           );
         })}
       </div>
 
-      {locked && requests.some((r) => r.status === "pending") && (
+      {requests.some((r) => r.status === "pending") && (
         <div className="mt-4 space-y-2 border-t pt-4" style={{ borderColor: "var(--border)" }}>
           <p className="label">Waiting on support</p>
           {requests

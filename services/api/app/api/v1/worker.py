@@ -14,7 +14,6 @@ from app.models.enums import (
     TERMINAL_BOOKING_STATUSES,
     BookingStatus,
     ServiceRequestStatus,
-    WorkerVerificationStatus,
 )
 from app.models.worker import WorkerProfile, WorkerService, WorkerServiceRequest
 from app.schemas.booking import BookingRead, CancelRequest, CompleteRequest
@@ -83,37 +82,43 @@ def _serialize_profile(profile: WorkerProfile) -> WorkerProfileRead:
 
 
 def _is_locked(profile: WorkerProfile) -> bool:
-    """Trades are frozen once support has verified the worker.
+    """Trades freeze the moment the worker declares them, not at verification.
 
-    What an admin approved was this person doing *these* trades. If the list
-    stayed editable afterwards, someone verified as a cleaner could tick
-    "Electrician" and start taking electrical work in a stranger's home — the
-    verification would still say approved, but it would no longer mean
-    anything.
+    What an admin reviews is a specific person offering a specific set of
+    trades. Locking only at approval left a window where the thing being
+    reviewed could still change underneath the reviewer: a worker could submit
+    as a cleaner, sit in the queue, and switch to electrician before anyone
+    looked — and support would approve a list they never actually read.
+
+    So the declaration is the commitment. Widening it afterwards goes through
+    support as a request, which is the same route a verified worker takes, and
+    approval writes the clearance in the same transaction as the decision.
+
+    An empty list means onboarding is simply not finished yet.
     """
-    return profile.verification_status == WorkerVerificationStatus.VERIFIED
+    return len(profile.services) > 0
 
 
 @router.put(
     "/services",
     response_model=WorkerProfileRead,
-    summary="Choose which trades I work in (before verification only)",
+    summary="Declare which trades I work in (onboarding, once)",
 )
 async def set_services(
     body: WorkerServicesUpdate, worker: CurrentWorker, db: DbSession
 ) -> WorkerProfileRead:
-    """Replace the worker's trade list, while onboarding.
+    """Set the worker's trade list. This is the last step of onboarding.
 
     Picking a trade is a claim, not a credential: `skill_verified` stays false
     until an admin says otherwise, and verification is what actually unlocks
-    work. Once verified, the list is frozen — see `_is_locked`.
+    work. The list itself is frozen as soon as it is submitted — see
+    `_is_locked` — so this succeeds exactly once per worker.
     """
     profile = await _profile(db, worker.id)
 
     if _is_locked(profile):
         raise ConflictError(
-            "Your trades were locked when Sajilo verified you. "
-            "Request a new one and support will review it.",
+            "Your trades are locked. Ask support to add another one and they will review it.",
             code="SERVICES_LOCKED",
         )
 

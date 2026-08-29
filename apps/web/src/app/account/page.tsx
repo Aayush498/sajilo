@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { LogOut, MapPin, ShieldCheck, Trash2, User as UserIcon } from "lucide-react";
@@ -89,19 +90,27 @@ export default function AccountPage() {
         onSave={(patch) => run("details", () => updateProfile(patch), "Details saved.")}
       />
 
-      {isWorker && profile && (
+      {/* A worker who has not declared their trades has not finished signing
+          up. The picker has nothing to show them, and the choice belongs in
+          the onboarding step where its consequences are spelled out. */}
+      {isWorker && profile && profile.services.length === 0 && (
+        <section className="card p-5">
+          <h2 className="font-bold">Finish setting up</h2>
+          <p className="muted mt-0.5 text-sm">
+            Tell us which trades you work in and your account goes to Sajilo for verification.
+          </p>
+          <Link href="/worker" className="btn-primary mt-4">
+            Choose your trades
+          </Link>
+        </section>
+      )}
+
+      {isWorker && profile && profile.services.length > 0 && (
         <TradePicker
           profile={profile}
           services={services}
           requests={requests}
           busy={busy}
-          onToggle={(id) => {
-            const current = profile.services.map((x) => x.service_id);
-            const next = current.includes(id)
-              ? current.filter((x) => x !== id)
-              : [...current, id];
-            run("trades", () => api.put<WorkerProfile>("/worker/services", { service_ids: next }));
-          }}
           onRequest={async (serviceId, note) => {
             await api.post("/worker/service-requests", {
               service_id: serviceId,

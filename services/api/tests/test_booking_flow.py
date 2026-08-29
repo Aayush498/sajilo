@@ -194,7 +194,7 @@ async def test_only_one_worker_wins_a_contested_job(
     assert loser.json()["error"]["code"] == "JOB_ALREADY_TAKEN"
 
 
-async def test_worker_picks_their_own_trades(client: AsyncClient, catalog: None) -> None:
+async def test_worker_declares_their_own_trades_once(client: AsyncClient, catalog: None) -> None:
     worker = await _sign_in(client, CLEANER, "worker")
     services = (await client.get("/catalog/services")).json()
     chosen = [services[0]["id"], services[1]["id"]]
@@ -202,12 +202,14 @@ async def test_worker_picks_their_own_trades(client: AsyncClient, catalog: None)
     updated = await client.put("/worker/services", headers=worker, json={"service_ids": chosen})
     assert updated.status_code == 200, updated.text
     assert sorted(s["service_id"] for s in updated.json()["services"]) == sorted(chosen)
+    assert updated.json()["services_locked"] is True
 
-    # Replacing the list drops what is no longer selected.
+    # The declaration is the commitment; changing it goes through support.
     trimmed = await client.put(
         "/worker/services", headers=worker, json={"service_ids": [services[1]["id"]]}
     )
-    assert [s["service_id"] for s in trimmed.json()["services"]] == [services[1]["id"]]
+    assert trimmed.status_code == 409
+    assert trimmed.json()["error"]["code"] == "SERVICES_LOCKED"
 
 
 async def test_customer_cannot_reach_the_worker_or_admin_surface(

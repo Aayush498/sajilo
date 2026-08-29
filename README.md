@@ -146,8 +146,8 @@ This is the part that matters. A marketplace is only as good as its guarantees.
 <tr><td><b>🕵️ Enumeration leaks nothing</b></td>
 <td>Ask for a booking that isn't yours and you get <code>404</code>, not <code>403</code>. Confirming a record exists is itself a leak.</td></tr>
 
-<tr><td><b>🔐 Verification cannot be widened silently</b></td>
-<td>A worker picks their trades while onboarding; verification freezes the list. Adding one goes back through support, and approval clears them in the same transaction — so their job pool widens the instant support says yes. Without this, a verified cleaner could tick "Electrician" and start taking electrical work in a stranger's home while the record still read approved.</td></tr>
+<tr><td><b>🔐 What was reviewed cannot change afterwards</b></td>
+<td>Signing up ends with one question — what do you do — and the answer locks the moment it is given, before any admin has looked at it. Adding a trade later goes through support, and approval clears them in the same transaction, so their job pool widens the instant support says yes. Locking at <i>approval</i> instead would leave a window: submit as a cleaner, sit in the queue, switch to electrician before anyone opened the record, and support approves a list they never read.</td></tr>
 
 <tr><td><b>⏳ Sessions survive a long booking</b></td>
 <td>Access tokens expire in 15 minutes. The client refreshes them silently and retries the request, so nobody is signed out mid-task. Crucially, concurrent expiries share a single in-flight refresh — the API rotates refresh tokens and treats reuse as theft by revoking the whole session, so four parallel refreshes would sign the user out rather than keep them in.</td></tr>
@@ -306,12 +306,15 @@ by side; that's where it's satisfying.
 
 <br>
 
-A new worker is **pending verification** and sees nothing at all:
+A new worker is **pending verification** and sees no jobs at all:
 
 1. Sign in at `/worker` with any unused mobile → you're asked for your name
-2. Pick the trades you work in
-3. An admin approves you at `/admin` → **Workers** → **Approve**
-4. Open jobs for those trades appear — and only then
+2. **You're asked what you do before you see a dashboard** — pick your trades and
+   they lock, with the consequence spelled out before you commit
+3. The portal opens on a **"Waiting for Sajilo to verify you"** banner and your
+   locked trades
+4. An admin approves you at `/admin` → **Workers** → **Approve**
+5. Open jobs for those trades appear — and only then
 
 That gate *is* the product. Only a verified worker, cleared for that specific trade and
 marked available, can ever be attached to a job — through any path, including admin

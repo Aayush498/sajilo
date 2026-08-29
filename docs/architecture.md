@@ -120,12 +120,25 @@ it can be declined, and `submit_review` accepts both `completed` and `closed`.
 Because closing no longer guards it, `submit_review` checks the status
 explicitly; without that an in-progress job could be rated.
 
-### Verification freezes what it approved
+### Declaring a trade is the commitment, not approving it
 
-A worker's trade list is self-selected while onboarding and frozen once support
-verifies them — no additions, no removals. Verification is an assertion about a
-specific person doing specific trades; leaving the list editable afterwards
-would let a verified cleaner silently become a verified electrician.
+Signing up as a worker ends with one question — what do you do — and the answer
+is frozen the moment it is given. `_is_locked` is simply "has any trade", so the
+list is editable exactly once, during onboarding, and never again.
+
+It used to lock at verification instead. That left a window in which the thing
+being reviewed could change underneath the reviewer: submit as a cleaner, sit in
+the queue, switch to electrician before anyone opened the record, and support
+would approve a list they never actually read. Locking at declaration closes it.
+
+An empty trade list therefore means one specific thing — onboarding is not
+finished — and the client uses it as the gate: a worker with no trades is shown
+the question instead of a dashboard. The API refuses an empty submission
+outright, so that state cannot be reached deliberately.
+
+Nothing else changes: verification is still what actually unlocks work, and a
+worker awaiting review sees their locked trades and a pending banner. Widening
+the list goes through support either way.
 
 Changes go back through support (`worker_service_requests`). The approval writes
 the `worker_services` row in the same transaction as the decision, so there is

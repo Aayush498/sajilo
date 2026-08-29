@@ -60,15 +60,18 @@ can be attached to a job, by any route.
 **Tables:** `customer_addresses`, `worker_profiles`, `worker_services`, `worker_service_requests`
 **Endpoints:** `/addresses` · `/worker/{profile,services,service-requests}` · `/admin/{workers,service-requests}`
 
-### Trades are frozen at verification
+### Trades are declared once, and frozen from that moment
 
-A worker picks their trades freely while onboarding. The moment support
-verifies them, the list locks — they cannot add one and cannot drop one.
+Signing up as a worker ends with one question — what do you do — and the answer
+locks as soon as it is given, before any admin has looked at it. A worker with
+no trades is shown that question instead of a dashboard; the empty list *is* the
+signal that onboarding is unfinished.
 
-What an admin approved was this person doing *these* trades. If the list stayed
-editable, someone verified as a cleaner could tick "Electrician" and start
-taking electrical work in a stranger's home; the verification record would
-still say approved while meaning nothing.
+This used to lock at verification instead, which left a window where the thing
+under review could change underneath the reviewer: submit as a cleaner, sit in
+the queue, switch to electrician before anyone opened the record, and support
+would approve a list they never read. Somebody would then be doing electrical
+work in a stranger's home on the strength of a cleaning approval.
 
 Widening it goes back through support as a request. Approval writes the
 clearance in the same transaction as the decision, so the worker's job pool
