@@ -56,6 +56,41 @@ export const STATUS_TONE: Record<BookingStatus, string> = {
   cancelled: "bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300",
 };
 
+/**
+ * Statuses a booking can still move out of without the viewer doing anything.
+ *
+ * Screens poll while a booking is in one of these and stop once it settles.
+ * `completed` belongs here: an unpaid job sits there until the worker confirms
+ * the cash, and the customer watching should see it close when they do.
+ */
+export const LIVE_STATUSES: BookingStatus[] = [
+  "pending",
+  "assigned",
+  "accepted",
+  "en_route",
+  "in_progress",
+  "completed",
+];
+
+export function isLive(status: BookingStatus): boolean {
+  return LIVE_STATUSES.includes(status);
+}
+
+/**
+ * How often each live screen refetches. Kept together so the whole app's
+ * polling load is visible in one place rather than guessed at per file.
+ */
+export const POLL_MS = {
+  /** One booking the customer is actively watching. */
+  order: 3000,
+  /** The customer's list of bookings. */
+  orders: 6000,
+  /** Worker portal: open pool plus their own jobs. */
+  worker: 4000,
+  /** Admin dispatch board. */
+  admin: 6000,
+} as const;
+
 /** The happy path, in order. Used to draw the progress tracker. */
 export const PROGRESS_STEPS: BookingStatus[] = [
   "pending",

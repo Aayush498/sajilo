@@ -110,7 +110,7 @@ async def cancel_booking(
 @router.post(
     "/{booking_id}/review",
     response_model=BookingRead,
-    summary="Rate a completed booking (this also closes it)",
+    summary="Rate a finished booking",
 )
 async def review_booking(
     booking_id: uuid.UUID, body: ReviewCreate, user: CurrentUser, db: DbSession

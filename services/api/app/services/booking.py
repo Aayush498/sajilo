@@ -353,7 +353,17 @@ async def claim_booking(db: AsyncSession, booking_id: uuid.UUID, *, worker: User
 async def complete_booking(
     db: AsyncSession, booking: Booking, *, actor: User, cash_collected: bool
 ) -> Booking:
-    """Worker marks the job done and confirms whether cash was taken."""
+    """Worker marks the job done and confirms whether cash was taken.
+
+    Finished work that has been paid for closes here and now. Waiting for the
+    customer's rating to close it made the rating load-bearing: a customer who
+    never opened the app left the job sitting in `completed` forever, which
+    kept it on the dispatch board, out of the earnings total, and looking
+    unfinished to everyone involved. A rating is feedback, not settlement.
+
+    Unpaid work is the one case that stays open — the money has not changed
+    hands, so the job genuinely is not done with.
+    """
     await transition(db, booking, "complete", actor=actor)
 
     payment = booking.payment
@@ -368,14 +378,42 @@ async def complete_booking(
         if profile is not None:
             profile.jobs_completed += 1
 
+    if is_settled(booking):
+        await transition(db, booking, "close", actor=actor, note="Work finished and paid")
+
     await db.flush()
     return booking
+
+
+def is_settled(booking: Booking) -> bool:
+    """Has the money for this booking actually been taken?
+
+    A booking with no payment row is treated as settled rather than stuck:
+    every booking gets one at creation, so a missing row is a data fault, and
+    blocking the lifecycle on it would strand the job with no way forward.
+    """
+    return booking.payment is None or booking.payment.status == PaymentStatus.PAID
+
+
+REVIEWABLE_STATUSES = (BookingStatus.COMPLETED, BookingStatus.CLOSED)
 
 
 async def submit_review(
     db: AsyncSession, booking: Booking, *, customer: User, rating: int, comment: str | None
 ) -> Booking:
-    """Rate a completed booking, which also closes it."""
+    """Rate a finished booking.
+
+    Rating no longer drives the lifecycle — a paid job has already closed
+    itself — so this is pure feedback and can arrive whenever the customer
+    gets round to it. The one case where it still closes the booking is
+    unpaid work the customer rates anyway: the transition table refuses the
+    jump from any other status, but that path is worth keeping.
+
+    Because closing is no longer what guards this, the status check has to be
+    explicit. Without it a booking still in progress could be rated.
+    """
+    if booking.status not in REVIEWABLE_STATUSES:
+        raise ConflictError("This job is not finished yet.", code="NOT_REVIEWABLE")
     if booking.review is not None:
         raise ConflictError("This booking has already been rated.", code="ALREADY_REVIEWED")
     if booking.worker_id is None:
@@ -408,7 +446,12 @@ async def submit_review(
         profile.rating_avg = Decimal(stats[0] or 0).quantize(TWO_DP)
         profile.rating_count = stats[1]
 
-    return await transition(db, booking, "close", actor=customer, note=f"Rated {rating}/5")
+    # Already closed in the normal (paid) case; this only fires for unpaid work
+    # the customer chose to rate.
+    if booking.status == BookingStatus.COMPLETED:
+        await transition(db, booking, "close", actor=customer, note=f"Rated {rating}/5")
+
+    return booking
 
 
 # --- access control ---------------------------------------------------------

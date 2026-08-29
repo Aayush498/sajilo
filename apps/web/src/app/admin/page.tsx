@@ -10,7 +10,7 @@ import {
   type WorkerSummary,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { npr, when } from "@/lib/format";
+import { POLL_MS, npr, when } from "@/lib/format";
 import { usePolling } from "@/hooks/usePolling";
 import { CardSkeleton, ErrorNote, Field, Spinner, StatusBadge } from "@/components/ui";
 
@@ -49,7 +49,7 @@ export default function AdminPage() {
 
   // Pauses while the tab is hidden — an unwatched dispatch board does not
   // need refreshing, and it refetches on return.
-  usePolling(() => load().catch(() => undefined), 8000, isAdmin);
+  usePolling(() => load().catch(() => undefined), POLL_MS.admin, isAdmin);
 
   async function run(key: string, fn: () => Promise<unknown>) {
     setBusy(key);
@@ -84,7 +84,10 @@ export default function AdminPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-black">Operations</h1>
-        <p className="muted mt-1 text-sm">Live dispatch board · refreshes every 8 seconds</p>
+        {/* Read from the constant so the copy cannot drift from the timer. */}
+        <p className="muted mt-1 text-sm">
+          Live dispatch board · refreshes every {POLL_MS.admin / 1000} seconds
+        </p>
       </div>
 
       {stats && (

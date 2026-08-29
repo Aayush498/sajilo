@@ -30,8 +30,8 @@ class BookingStatus(StrEnum):
     ACCEPTED = "accepted"  # worker took the job
     EN_ROUTE = "en_route"  # worker travelling to the customer
     IN_PROGRESS = "in_progress"  # work started
-    COMPLETED = "completed"  # work finished, awaiting the customer's rating
-    CLOSED = "closed"  # terminal: rated and settled
+    COMPLETED = "completed"  # work finished, but the money has not been taken
+    CLOSED = "closed"  # terminal: work finished and paid for
     CANCELLED = "cancelled"  # terminal
 
 
