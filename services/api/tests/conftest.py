@@ -7,10 +7,20 @@ cannot leak state into each other or into your dev data.
 """
 
 import os
+from urllib.parse import urlsplit, urlunsplit
 
-os.environ.setdefault("ENVIRONMENT", "test")
-os.environ.setdefault("POSTGRES_DB", "sajilo_test")
-os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
+# Overwritten, never setdefault. The api container already carries POSTGRES_DB
+# and REDIS_URL pointing at development data, so setdefault found them set and
+# left them alone — and `pytest` run directly inside the container dropped every
+# table in the development database. Whatever host and credentials were
+# configured are kept; only *which* database the suite may touch is forced.
+os.environ.update(
+    ENVIRONMENT="test",
+    POSTGRES_DB="sajilo_test",
+    REDIS_URL=urlunsplit(
+        urlsplit(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))._replace(path="/15")
+    ),
+)
 os.environ.setdefault("SECRET_KEY", "test-secret-not-used-anywhere-real")
 os.environ.setdefault("OTP_TEST_NUMBERS", "")
 
@@ -34,6 +44,17 @@ def anyio_backend() -> str:
 
 @pytest.fixture(autouse=True)
 async def clean_state() -> AsyncGenerator[None, None]:
+    # drop_all is irreversible and silent. Even with the environment forced
+    # above, refuse outright if the engine somehow ended up pointed at anything
+    # that is not a test database — losing a developer's data to a stray
+    # pytest invocation is not a recoverable mistake.
+    if not (engine.url.database or "").endswith("_test"):
+        pytest.exit(
+            f"Refusing to run: this would drop every table in "
+            f"{engine.url.database!r}, which is not a test database.",
+            returncode=1,
+        )
+
     async with engine.begin() as conn:
         await conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS pgcrypto")
         await conn.run_sync(Base.metadata.drop_all)

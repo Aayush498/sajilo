@@ -92,7 +92,7 @@ workers.
 
 ## ✅ Module 4 — Booking lifecycle & dispatch
 
-Quote, create, and the full status machine through to a rated close.
+Quote, create, and the full status machine through to a settled close.
 
 Every legal move lives in one table, `BOOKING_TRANSITIONS` in
 `app/models/enums.py`, and every move is checked against it. An illegal jump is
@@ -121,6 +121,11 @@ therefore impossible rather than merely unlikely.
 - **Self-serve claiming was not in the original plan** and became the primary
   path. Manual dispatch alone means nothing happens until a human is watching
   the board.
+- **Rating no longer closes a booking.** It originally did, which quietly made
+  optional feedback load-bearing: a customer who never came back left a paid,
+  finished job in `completed` forever, still on the dispatch board. Paid work
+  now closes itself, and the customer is asked to rate afterwards — a prompt
+  they can decline. `completed` now means one thing only: finished but unpaid.
 
 ---
 
@@ -165,7 +170,13 @@ Reliability work that turned out to matter more than any feature:
 - Error, not-found and loading boundaries, so Next.js never shows a customer
   its stack trace.
 - Polling pauses on hidden tabs.
+- Every screen showing something another person can change polls, the order
+  list included. It was the one live screen that did not, so a customer sat
+  looking at a stale "Work in progress" until they reloaded.
 - Radix dialogs, so modals have focus trapping, Escape and scroll locking.
+- The rating is a dialog that opens itself when a job closes, not a form at the
+  bottom of a page nobody scrolls to. Dismissal is remembered per booking, so a
+  nudge does not become nagging.
 
 **Not built:** refunds, analytics beyond headline numbers.
 

@@ -101,6 +101,25 @@ one table; there is no second place that needs to agree.
 Every transition also appends to `booking_status_history`, which is append-only.
 Every dispute starts by reading it.
 
+### Settlement closes a booking; rating does not
+
+`complete` and `close` used to be separate events driven by separate people: the
+worker finished the job, and the booking only reached `closed` when the customer
+rated it. That made an optional piece of feedback load-bearing. A customer who
+never reopened the app left a paid, finished job sitting in `completed`
+indefinitely — still on the dispatch board, still reading as unfinished to the
+worker who already had the cash in hand.
+
+Completing a job that has been paid for now closes it in the same transaction,
+as a real `close` transition with its own history row, so the audit trail still
+shows who ended it and why. `completed` is now exactly one thing: finished work
+whose money has not changed hands.
+
+The rating became what it always was — feedback. It is asked for after the fact,
+it can be declined, and `submit_review` accepts both `completed` and `closed`.
+Because closing no longer guards it, `submit_review` checks the status
+explicitly; without that an in-progress job could be rated.
+
 ### Verification freezes what it approved
 
 A worker's trade list is self-selected while onboarding and frozen once support
@@ -208,9 +227,21 @@ so the UI cannot render a signed-in shell that 401s on every action.
 
 ### Liveness by polling
 
-Order pages, the job pool and the dispatch board poll every 5–8 seconds. Server-
-sent events or websockets would be tidier, but polling needs no extra
-infrastructure and a five-second lag is invisible for a job that takes an hour.
+Every screen showing something another person can change polls: the order the
+customer is watching, their order list, the worker's job pool and the dispatch
+board. Server-sent events or websockets would be tidier, but polling needs no
+extra infrastructure and a few seconds of lag is invisible for a job that takes
+an hour.
+
+The intervals live together in `POLL_MS` in `apps/web/src/lib/format.ts` rather
+than as a number typed into each page, so the app's total polling load is
+readable in one place — and the dispatch board's "refreshes every N seconds"
+caption reads from the same constant, so the copy cannot drift from the timer.
+
+Which statuses count as still-moving is also shared, as `LIVE_STATUSES`. The
+order page stops polling once a booking settles. `completed` is in that list
+because unpaid work still moves — the worker confirming the cash closes it, and
+the customer watching should see that happen.
 
 Polling stops while the tab is hidden and refetches on return. A backgrounded
 tab was thousands of pointless requests per user, and browsers throttle those

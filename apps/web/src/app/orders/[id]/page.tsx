@@ -6,7 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, api, type Booking } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { duration, npr, when } from "@/lib/format";
+import { POLL_MS, duration, isLive, npr, when } from "@/lib/format";
+import { ReviewDialog, needsReview, wasDismissed } from "@/components/ReviewDialog";
 import {
   Empty,
   ErrorNote,
@@ -17,8 +18,6 @@ import {
   Timeline,
 } from "@/components/ui";
 
-const LIVE_STATUSES = ["pending", "assigned", "accepted", "en_route", "in_progress"];
-
 export default function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user, ready } = useAuth();
@@ -26,8 +25,7 @@ export default function OrderDetailPage() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [rating, setRating] = useState(5);
-  const [comment, setComment] = useState("");
+  const [rateOpen, setRateOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -41,10 +39,17 @@ export default function OrderDetailPage() {
     if (user) load();
   }, [user, load]);
 
-  // Poll while the job is live. Server-sent events would be tidier, but
-  // polling needs no extra infrastructure and a 5s lag is invisible here.
-  // Stops while the tab is hidden and refetches the moment it comes back.
-  usePolling(load, 5000, !!booking && LIVE_STATUSES.includes(booking.status));
+  // Poll while the job can still move on its own. Server-sent events would be
+  // tidier, but polling needs no extra infrastructure and a three second lag
+  // is invisible here. Stops while the tab is hidden and refetches the moment
+  // it comes back.
+  usePolling(load, POLL_MS.order, !!booking && isLive(booking.status));
+
+  // The job settles while the customer is watching it, so ask for the rating
+  // right then. Anything they have already waved away stays waved away.
+  useEffect(() => {
+    if (booking && needsReview(booking) && !wasDismissed(booking.id)) setRateOpen(true);
+  }, [booking]);
 
   async function act(fn: () => Promise<Booking>) {
     setBusy(true);
@@ -64,7 +69,7 @@ export default function OrderDetailPage() {
   if (!booking) return <Spinner label="Loading booking…" />;
 
   const canCancel = ["pending", "assigned", "accepted", "en_route"].includes(booking.status);
-  const canRate = booking.status === "completed";
+  const canRate = needsReview(booking);
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -157,43 +162,25 @@ export default function OrderDetailPage() {
       )}
 
       {canRate && (
-        <div className="card border-brand-300 p-5 dark:border-brand-700">
-          <p className="font-bold">How did it go?</p>
-          <p className="muted mb-4 text-sm">Rating the work closes this booking.</p>
-          <div className="flex gap-1 text-3xl">
-            {[1, 2, 3, 4, 5].map((n) => (
-              <button
-                key={n}
-                onClick={() => setRating(n)}
-                className={n <= rating ? "text-accent-500" : "text-slate-300 dark:text-slate-700"}
-                aria-label={`${n} stars`}
-              >
-                ★
-              </button>
-            ))}
+        <div className="card flex flex-wrap items-center justify-between gap-3 border-brand-300 p-5 dark:border-brand-700">
+          <div>
+            <p className="font-bold">How did it go?</p>
+            <p className="muted text-sm">
+              {booking.worker?.full_name ?? "Your professional"} would like to know.
+            </p>
           </div>
-          <textarea
-            className="input mt-3 min-h-20"
-            placeholder="Anything you'd like to add?"
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-          />
-          <button
-            className="btn-primary mt-3"
-            disabled={busy}
-            onClick={() =>
-              act(() =>
-                api.post<Booking>(`/bookings/${booking.id}/review`, {
-                  rating,
-                  comment: comment || null,
-                }),
-              )
-            }
-          >
-            {busy ? "Submitting…" : "Submit rating"}
+          <button className="btn-primary" onClick={() => setRateOpen(true)}>
+            Rate this job
           </button>
         </div>
       )}
+
+      <ReviewDialog
+        booking={booking}
+        open={rateOpen}
+        onClose={() => setRateOpen(false)}
+        onReviewed={setBooking}
+      />
 
       {error && <ErrorNote message={error} />}
 

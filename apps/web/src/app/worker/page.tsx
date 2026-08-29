@@ -13,7 +13,7 @@ import {
   type WorkerProfile,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { SERVICE_EMOJI, duration, npr, when } from "@/lib/format";
+import { POLL_MS, SERVICE_EMOJI, duration, npr, when } from "@/lib/format";
 import { LoginDialog } from "@/components/LoginDialog";
 import { TradePicker } from "@/components/TradePicker";
 import { usePolling } from "@/hooks/usePolling";
@@ -92,7 +92,7 @@ export default function WorkerPage() {
   // The pool is a race between workers, so it has to stay fresh without a
   // manual refresh — this is the worker's live queue. Pauses when the tab is
   // hidden; there is nobody looking at it.
-  usePolling(() => load().catch(() => undefined), 5000, isWorker);
+  usePolling(() => load().catch(() => undefined), POLL_MS.worker, isWorker);
 
   async function run(key: string, fn: () => Promise<unknown>) {
     setBusy(key);

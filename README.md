@@ -10,7 +10,7 @@ Fixed prices. KYC-checked people. Work that comes with a warranty.
 <br>
 
 ![Status](https://img.shields.io/badge/status-MVP%20complete-14806f?style=for-the-badge)
-![Tests](https://img.shields.io/badge/tests-60%20passing-1fa189?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-67%20passing-1fa189?style=for-the-badge)
 ![Python](https://img.shields.io/badge/python-3.12-14806f?style=for-the-badge&logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/next.js-15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
 ![Postgres](https://img.shields.io/badge/postgres-16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
@@ -291,13 +291,14 @@ by side; that's where it's satisfying.
 2 · WORKER      localhost:3000/worker → sign in 9841000004
                 "Open jobs 1" · NPR 656 payout → Accept this job
                                                     ↓
-3 · WATCH       the customer's tab flips to Confirmed on its own, within 5s,
+3 · WATCH       the customer's tab flips to Confirmed on its own, within 3s,
                 revealing the professional's name, rating and phone number
 
 4 · DELIVER     On my way → Start work → Mark complete + collect cash
                 each one lands on the customer's screen in seconds
 
-5 · CLOSE       customer rates it → booking closes → worker's earnings update
+5 · CLOSE       the job closes the moment it is paid for, and the customer is
+                asked to rate it — they can decline and it stays closed
 ```
 
 <details>
@@ -343,13 +344,19 @@ pending ──assign──> assigned ──accept──> accepted ──> en_rou
    │                    │                    │            │             │
    │                  reject                 └────────────┴─────► completed
    │                    │                                              │
-   └──────────── cancel ┴──────────────► cancelled              review │
+   └──────────── cancel ┴──────────────► cancelled            paid?    │
                                                                        ▼
                                                                     closed
 ```
 
 Cancel is allowed up to `en_route`. Once work has started it is not — somebody is
 already in the customer's home.
+
+**Finished and paid closes the job immediately.** Rating it does not — the customer
+gets asked afterwards, and can ignore it. Waiting on a rating meant a customer who
+never reopened the app left the job sitting in `completed` forever: still on the
+dispatch board, still looking unfinished to the worker who had already been paid.
+`completed` is now only where unpaid work waits.
 
 Defined in [`app/models/enums.py`](services/api/app/models/enums.py), enforced in
 [`app/services/booking.py`](services/api/app/services/booking.py).
@@ -405,6 +412,11 @@ Prefer raw Docker? Every helper command is a thin wrapper — `docker compose up
 `docker compose logs -f`, and so on. Nothing is hidden.
 
 Tests run against real Postgres and Redis in a separate database, never your dev data.
+That is enforced rather than arranged: `conftest.py` forces the test database and Redis
+index regardless of what the environment says, and the fixture that drops every table
+refuses to run if it is somehow pointed anywhere but a `_test` database. It used to be
+arranged — the container already sets `POSTGRES_DB`, so running `pytest` directly inside
+it dropped every table in the development database.
 There is no SQLite substitute — the schema depends on native enums, partial indexes and
 `SELECT … FOR UPDATE`, and testing against a different engine would not prove much.
 

@@ -118,8 +118,11 @@ async def test_worker_claims_a_job_and_runs_it_to_close(
     done = await client.post(
         f"/worker/jobs/{booking['id']}/complete", headers=worker, json={"cash_collected": True}
     )
-    assert done.json()["status"] == "completed"
+    # Finished and paid closes the job then and there. It does not wait for a
+    # rating the customer may never give.
+    assert done.json()["status"] == "closed"
     assert done.json()["payment"]["status"] == "paid"
+    assert done.json()["closed_at"] is not None
 
     rated = await client.post(
         f"/bookings/{booking['id']}/review", headers=customer, json={"rating": 5}
