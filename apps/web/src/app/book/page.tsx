@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   api,
@@ -15,6 +15,35 @@ import { useAuth } from "@/lib/auth";
 import { duration, npr, SERVICE_EMOJI } from "@/lib/format";
 import { LoginDialog } from "@/components/LoginDialog";
 import { ErrorNote, Field, Spinner } from "@/components/ui";
+
+/**
+ * Brings a step into view the first time it opens.
+ *
+ * Each step only appears once the one above it is answered, and on a phone
+ * that puts it below the fold — tapping a service looked like nothing had
+ * happened. Fires only on the transition into `open`, so a later re-render
+ * never yanks the page while somebody is reading it.
+ */
+function useRevealOnOpen(open: boolean) {
+  const ref = useRef<HTMLElement>(null);
+  const revealed = useRef(false);
+
+  useEffect(() => {
+    if (!open) {
+      revealed.current = false;
+      return;
+    }
+    if (revealed.current) return;
+    revealed.current = true;
+    // One frame, so the section is laid out before we measure where it is.
+    const id = requestAnimationFrame(() =>
+      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+
+  return ref;
+}
 
 function BookingFlow() {
   const router = useRouter();
@@ -38,12 +67,23 @@ function BookingFlow() {
   const [error, setError] = useState<string | null>(null);
   const [login, setLogin] = useState(false);
 
+  const packageStep = useRevealOnOpen(!!service);
+  const whereStep = useRevealOnOpen(!!pkg);
+  const confirmStep = useRevealOnOpen(!!pkg && !!user && !!addressId);
+
   useEffect(() => {
     api.get<Service[]>("/catalog/services", false).then((list) => {
       setServices(list);
-      const slug = params.get("service");
-      const preselect = slug ? list.find((s) => s.slug === slug) : null;
-      if (preselect) setService(preselect);
+      // "Book this again" links here with both ids, so the whole flow opens
+      // pre-answered down to the package. A slug still works for the home
+      // page's service tiles.
+      const wanted = params.get("service");
+      const chosen = wanted ? list.find((s) => s.slug === wanted || s.id === wanted) : null;
+      if (!chosen) return;
+      setService(chosen);
+      const packageId = params.get("package");
+      const repeat = packageId ? chosen.packages.find((p) => p.id === packageId) : null;
+      if (repeat) setPkg(repeat);
     });
     api.get<City[]>("/catalog/cities", false).then(setCities);
   }, [params]);
@@ -83,7 +123,7 @@ function BookingFlow() {
   if (services === null) return <Spinner label="Loading services…" />;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6 [&_section]:scroll-mt-24">
       <div>
         <h1 className="text-3xl font-black">Book a service</h1>
         <p className="muted mt-1 text-sm">Fixed price, shown before you commit.</p>
@@ -92,7 +132,10 @@ function BookingFlow() {
       {/* Step 1 — service */}
       <section className="card p-5">
         <StepHead n={1} title="Choose a service" done={!!service} />
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        {/* Two across on a phone, icon beside the name rather than above it:
+            stacked full-width cards filled the whole screen, so choosing a
+            service meant scrolling past the choice you had just made. */}
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
           {services.map((s) => (
             <button
               key={s.id}
@@ -100,15 +143,15 @@ function BookingFlow() {
                 setService(s);
                 setPkg(null);
               }}
-              className={`rounded-xl border p-3 text-left transition-all hover:border-brand-400 ${
+              className={`flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all hover:border-brand-400 ${
                 service?.id === s.id
                   ? "border-brand-500 bg-brand-50 dark:bg-brand-900/40"
                   : ""
               }`}
               style={service?.id === s.id ? undefined : { borderColor: "var(--border)" }}
             >
-              <span className="text-xl">{SERVICE_EMOJI[s.slug] ?? "🛠️"}</span>
-              <p className="mt-1 text-sm font-semibold">{s.name}</p>
+              <span className="text-xl leading-none">{SERVICE_EMOJI[s.slug] ?? "🛠️"}</span>
+              <span className="text-sm font-semibold leading-tight">{s.name}</span>
             </button>
           ))}
         </div>
@@ -116,7 +159,7 @@ function BookingFlow() {
 
       {/* Step 2 — package */}
       {service && (
-        <section className="card animate-rise p-5">
+        <section ref={packageStep} className="card animate-rise p-5">
           <StepHead n={2} title={`Pick your ${service.name.toLowerCase()} option`} done={!!pkg} />
           <div className="mt-4 space-y-2">
             {service.packages.map((p) => (
@@ -143,7 +186,7 @@ function BookingFlow() {
 
       {/* Step 3 — where and when */}
       {pkg && (
-        <section className="card animate-rise p-5">
+        <section ref={whereStep} className="card animate-rise p-5">
           <StepHead n={3} title="Where and when" done={!!addressId} />
 
           {!ready ? (
@@ -238,7 +281,7 @@ function BookingFlow() {
 
       {/* Step 4 — confirm */}
       {pkg && user && addressId && (
-        <section className="card animate-rise border-brand-300 p-5 dark:border-brand-700">
+        <section ref={confirmStep} className="card animate-rise border-brand-300 p-5 dark:border-brand-700">
           <StepHead n={4} title="Confirm and book" done={false} />
           <dl className="mt-4 space-y-2 text-sm">
             <Row k="Service" v={`${service!.name} — ${pkg.name}`} />

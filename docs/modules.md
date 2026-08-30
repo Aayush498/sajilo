@@ -181,6 +181,30 @@ Reliability work that turned out to matter more than any feature:
   bottom of a page nobody scrolls to. Dismissal is remembered per booking, so a
   nudge does not become nagging.
 
+Then a pass over the parts a customer actually touches, on a phone:
+
+- **Cancelling asks first.** It used to fire on one tap, with no confirmation
+  and no undo — trivial to hit by accident on a phone, and irreversible.
+- **Each booking step scrolls itself into view.** Steps only appear once the
+  one above is answered, which on a phone put them below the fold: choosing a
+  service looked like nothing had happened.
+- **Services are two across on a phone**, icon beside the name. Full-width
+  stacked cards filled the whole screen, so choosing meant scrolling past the
+  choice you had just made.
+- **A pending booking says what is happening** rather than showing a spinner
+  with no end in sight. It describes what the system is doing — the job is open
+  to every verified professional in that trade — instead of promising a time
+  nobody can stand behind yet.
+- **"Book this again"** on a finished or cancelled booking, deep-linking to the
+  same service and package. `bookings` now expose `service_id` and `package_id`
+  for it; the names beside them stay frozen snapshots.
+- **The passcode screen has a resend button and a countdown.** The API locks
+  resends for 60 seconds and the UI never said so, so people tapped resend and
+  got an error for doing the obvious thing.
+- **Phone numbers are checked while they are typed**, with a `+977` prefix
+  shown. A typo used to cost a round trip to find out. The API still validates
+  properly with libphonenumber and remains the authority.
+
 **Not built:** refunds, analytics beyond headline numbers.
 
 ---
