@@ -40,3 +40,9 @@ DEV_CREDENTIALS.txt
 postgres_data/
 uploads/
 *.log
+
+# Marketing assets — regenerated from the running app, and large binaries do
+# not belong in the history of the thing they are made from.
+Sajilo-Proposal.pdf
+Sajilo-demo.mp4
+Sajilo-demo-thumbnail.jpg

@@ -85,6 +85,11 @@ class BookingRead(BaseModel):
     id: uuid.UUID
     reference: str
     status: BookingStatus
+    # The names are snapshots and never change; the ids point at the live
+    # catalogue, so "book this again" can land on the right package instead of
+    # matching on a name that may since have been edited.
+    service_id: uuid.UUID
+    package_id: uuid.UUID
     service_name: str
     package_name: str
     quantity: int

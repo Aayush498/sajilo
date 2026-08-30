@@ -1,11 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { KeyRound, Loader2, Smartphone } from "lucide-react";
 import { ApiError, type Role } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Modal } from "./Modal";
 import { ErrorNote, Field } from "./ui";
+
+/** The API's resend lock, mirrored so the button can say when it lifts. */
+const RESEND_SECONDS = 60;
+
+/**
+ * Nepali mobiles are ten digits starting 97 or 98 (plus a few 96/972 ranges
+ * libphonenumber accepts). This is a courtesy check to catch a typo before a
+ * round trip — the API still validates properly with libphonenumber, and is
+ * the authority.
+ */
+function looksLikeNepaliMobile(raw: string): boolean {
+  const digits = raw.replace(/\D/g, "").replace(/^977/, "");
+  return /^9[6-8]\d{8}$/.test(digits);
+}
 
 /**
  * Phone + OTP for customers and workers, email + password for admins.
@@ -31,6 +45,18 @@ export function LoginDialog({
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+
+  // The API refuses a resend for a minute. Without a visible countdown people
+  // tap "resend" and get an error for doing the obvious thing.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  const typed = phone.trim().length > 0;
+  const phoneLooksWrong = typed && !looksLikeNepaliMobile(phone);
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -48,6 +74,7 @@ export function LoginDialog({
     run(async () => {
       const res = await requestOtp(phone, role as Role);
       setSent(true);
+      setCooldown(RESEND_SECONDS);
       if (res.debug_code) setCode(res.debug_code);
     });
 
@@ -104,15 +131,27 @@ export function LoginDialog({
           ) : (
             <>
               <Field label="Mobile number">
-                <input
-                  className="input"
-                  placeholder="9841234567"
-                  value={phone}
-                  disabled={sent}
-                  onChange={(e) => setPhone(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !sent && send()}
-                  inputMode="tel"
-                />
+                <div className="flex items-center gap-2">
+                  <span className="muted shrink-0 text-sm font-semibold">+977</span>
+                  <input
+                    className="input"
+                    placeholder="9841234567"
+                    value={phone}
+                    disabled={sent}
+                    onChange={(e) => setPhone(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && !sent && !phoneLooksWrong && send()}
+                    inputMode="tel"
+                    autoComplete="tel"
+                    aria-invalid={phoneLooksWrong}
+                  />
+                </div>
+                {/* Caught while typing, rather than after a round trip that
+                    comes back with a rejection. */}
+                {phoneLooksWrong && !sent && (
+                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                    That does not look like a Nepali mobile — ten digits starting 98 or 97.
+                  </p>
+                )}
               </Field>
 
               {sent && (
@@ -136,16 +175,32 @@ export function LoginDialog({
 
               <button
                 className="btn-primary w-full"
-                disabled={busy || (!sent && phone.length < 7)}
+                disabled={busy || (!sent && phoneLooksWrong) || (!sent && !typed)}
                 onClick={sent ? verify : send}
               >
                 {busy ? "Please wait…" : sent ? "Verify and continue" : "Send code"}
               </button>
 
               {sent && (
-                <button className="muted w-full text-xs" onClick={() => setSent(false)}>
-                  Use a different number
-                </button>
+                <div className="flex items-center justify-between text-xs">
+                  <button
+                    className="muted disabled:opacity-60"
+                    disabled={busy || cooldown > 0}
+                    onClick={send}
+                  >
+                    {cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
+                  </button>
+                  <button
+                    className="muted"
+                    onClick={() => {
+                      setSent(false);
+                      setCode("");
+                      setError(null);
+                    }}
+                  >
+                    Use a different number
+                  </button>
+                </div>
               )}
             </>
           )}

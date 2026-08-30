@@ -94,6 +94,10 @@ async def test_worker_claims_a_job_and_runs_it_to_close(
     assert booking["worker"] is None
     # Customers are quoted the price, never our cut of it.
     assert booking["commission_amount"] is None
+    # The names on a booking are frozen snapshots; these ids point at the live
+    # catalogue, which is what "book this again" needs to land on the right
+    # package rather than matching a name that may since have been edited.
+    assert booking["service_id"] and booking["package_id"]
 
     worker = await _sign_in(client, CLEANER, "worker")
     await _verify_worker(db, CLEANER, ["house-cleaning"])

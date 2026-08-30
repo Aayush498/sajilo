@@ -278,6 +278,9 @@ export interface Booking {
   id: string;
   reference: string;
   status: BookingStatus;
+  /** Point at the live catalogue; the names beside them are frozen snapshots. */
+  service_id: string;
+  package_id: string;
   service_name: string;
   package_name: string;
   quantity: number;

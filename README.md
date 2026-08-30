@@ -10,7 +10,7 @@ Fixed prices. KYC-checked people. Work that comes with a warranty.
 <br>
 
 ![Status](https://img.shields.io/badge/status-MVP%20complete-14806f?style=for-the-badge)
-![Tests](https://img.shields.io/badge/tests-67%20passing-1fa189?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-69%20passing-1fa189?style=for-the-badge)
 ![Python](https://img.shields.io/badge/python-3.12-14806f?style=for-the-badge&logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/next.js-15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
 ![Postgres](https://img.shields.io/badge/postgres-16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
@@ -185,7 +185,7 @@ This is the part that matters. A marketplace is only as good as its guarantees.
                   │  POSTGRES 16   │  │    REDIS 7      │
                   │  :5432         │  │    :6379        │
                   │                │  │                 │
-                  │  15 tables     │  │  OTP codes      │
+                  │  14 tables     │  │  OTP codes      │
                   │  row locking   │  │  rate limits    │
                   │  native enums  │  │  auto-expiring  │
                   └────────────────┘  └─────────────────┘
